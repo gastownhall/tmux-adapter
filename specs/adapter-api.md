@@ -197,6 +197,14 @@ An agent has stopped or its session was destroyed.
 {"type": "agent-removed", "name": "gt-gastown-crew-max"}
 ```
 
+### agent-updated
+
+An agent's metadata has changed — typically when a human attaches to or detaches from the agent's session. Pushed to `subscribe-agents` subscribers.
+
+```json
+{"type": "agent-updated", "agent": {"name": "hq-mayor", "role": "mayor", "runtime": "claude", "rig": null, "workDir": "/Users/me/gt/mayor/rig", "attached": true}}
+```
+
 ### output
 
 Streaming output from a subscribed agent.
@@ -232,7 +240,8 @@ Clients see agents. Internally it's all tmux.
 
 **Agent detection:**
 - On `%sessions-changed`: list sessions, read `GT_AGENT`/`GT_ROLE`/`GT_RIG` env vars, verify agent process is alive (not zombie)
-- Diff against known set → push `agent-added` / `agent-removed` to subscribed clients
+- Diff against known set → push `agent-added` / `agent-removed` / `agent-updated` to subscribed clients
+- Hot-reload handling: when an agent hot-reloads (same session, process dies + restarts), emit `agent-removed` then `agent-added` with the same name in quick succession. No new event type needed.
 
 **Atomic history + subscribe:**
 - Capture full scrollback (`capture-pane -p -S -`)
