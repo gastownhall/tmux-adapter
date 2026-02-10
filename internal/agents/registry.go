@@ -127,12 +127,19 @@ func (r *Registry) scan() error {
 		processNames := GetProcessNames(agentName)
 
 		// Check if agent is alive (not a zombie)
+		// Detection priority (from gastown spec):
+		// 1. Direct pane command match
+		// 2. Shell wrapping agent → check descendants
+		// 3. Unrecognized command (version-as-argv[0]) → check binary, then descendants
 		alive := false
 		if IsAgentProcess(pane.Command, processNames) {
 			alive = true
 		} else if IsShell(pane.Command) && pane.PID != "" {
-			// Shell might be wrapping the agent — check descendants
 			alive = CheckDescendants(pane.PID, processNames)
+		} else if pane.PID != "" {
+			// Unrecognized pane command (e.g., "2.1.38" for Claude Code)
+			// Check the actual binary path, then descendants
+			alive = CheckProcessBinary(pane.PID, processNames) || CheckDescendants(pane.PID, processNames)
 		}
 
 		if !alive {
@@ -154,10 +161,10 @@ func (r *Registry) scan() error {
 			rig = agentRig
 		}
 
-		// Runtime is the agent preset name
+		// Runtime is the agent preset name; infer from binary if not set
 		runtime := agentName
 		if runtime == "" {
-			runtime = "claude" // default
+			runtime = InferRuntime(pane.Command, pane.PID)
 		}
 
 		var rigPtr *string

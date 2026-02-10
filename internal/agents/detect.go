@@ -2,6 +2,7 @@ package agents
 
 import (
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -50,6 +51,19 @@ func IsAgentProcess(command string, processNames []string) bool {
 // IsShell checks if the command is a known shell.
 func IsShell(command string) bool {
 	return knownShells[command]
+}
+
+// CheckProcessBinary checks the actual binary path of a process (via ps -o comm=)
+// against the expected process names. Handles the version-as-argv[0] case where
+// Claude Code shows "2.1.38" as the pane command but the actual binary is "claude".
+func CheckProcessBinary(pid string, processNames []string) bool {
+	out, err := exec.Command("ps", "-p", pid, "-o", "comm=").Output()
+	if err != nil {
+		return false
+	}
+	binaryPath := strings.TrimSpace(string(out))
+	binaryName := filepath.Base(binaryPath)
+	return IsAgentProcess(binaryName, processNames)
 }
 
 // CheckDescendants walks the process tree looking for a matching process name.
@@ -135,6 +149,31 @@ func ParseSessionName(name string) (role string, rig string) {
 	}
 
 	return "unknown", ""
+}
+
+// InferRuntime tries to determine the agent runtime from the pane command or binary.
+func InferRuntime(paneCommand, pid string) string {
+	// Check direct command match
+	for runtime, names := range runtimeProcessNames {
+		if IsAgentProcess(paneCommand, names) {
+			return runtime
+		}
+	}
+
+	// Check actual binary path
+	if pid != "" {
+		out, err := exec.Command("ps", "-p", pid, "-o", "comm=").Output()
+		if err == nil {
+			binaryName := filepath.Base(strings.TrimSpace(string(out)))
+			for runtime, names := range runtimeProcessNames {
+				if IsAgentProcess(binaryName, names) {
+					return runtime
+				}
+			}
+		}
+	}
+
+	return "claude" // default
 }
 
 // IsGastownSession checks if a session name belongs to gastown.

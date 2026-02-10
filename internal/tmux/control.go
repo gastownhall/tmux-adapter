@@ -25,15 +25,16 @@ type commandResponse struct {
 }
 
 // ControlMode manages a tmux control mode connection.
+// Commands are serialized — only one Execute() call runs at a time.
 type ControlMode struct {
 	cmd           *exec.Cmd
 	stdin         io.WriteCloser
 	notifications chan Notification
-	pending       map[uint64]chan commandResponse
-	pendingMu     sync.Mutex
-	cmdNum        atomic.Uint64
+	responseCh    chan commandResponse // single channel for current pending command
+	execMu        sync.Mutex          // serializes Execute() calls
 	done          chan struct{}
-	session       string // monitor session name
+	closing       atomic.Bool
+	session       string
 }
 
 // NewControlMode creates and starts a tmux control mode connection.
@@ -47,7 +48,7 @@ func NewControlMode() (*ControlMode, error) {
 
 	cm := &ControlMode{
 		notifications: make(chan Notification, 100),
-		pending:       make(map[uint64]chan commandResponse),
+		responseCh:    make(chan commandResponse, 1),
 		done:          make(chan struct{}),
 		session:       sessionName,
 	}
@@ -69,29 +70,34 @@ func NewControlMode() (*ControlMode, error) {
 	}
 
 	go cm.readLoop(stdout)
+
+	// Wait for the initial attach response (command 0) to be consumed by readLoop
+	// before accepting any Execute() calls. The readLoop handles this by dropping
+	// responses when no command is pending.
+
 	return cm, nil
 }
 
 // Execute sends a command through control mode and returns the response.
+// Serialized: only one command in flight at a time.
 func (cm *ControlMode) Execute(command string) (string, error) {
-	num := cm.cmdNum.Add(1)
-	ch := make(chan commandResponse, 1)
+	cm.execMu.Lock()
+	defer cm.execMu.Unlock()
 
-	cm.pendingMu.Lock()
-	cm.pending[num] = ch
-	cm.pendingMu.Unlock()
+	// Drain any stale response (shouldn't happen, but be safe)
+	select {
+	case <-cm.responseCh:
+	default:
+	}
 
 	// Write command to stdin
 	_, err := fmt.Fprintf(cm.stdin, "%s\n", command)
 	if err != nil {
-		cm.pendingMu.Lock()
-		delete(cm.pending, num)
-		cm.pendingMu.Unlock()
 		return "", fmt.Errorf("write command: %w", err)
 	}
 
 	// Wait for response
-	resp := <-ch
+	resp := <-cm.responseCh
 	return resp.output, resp.err
 }
 
@@ -102,6 +108,7 @@ func (cm *ControlMode) Notifications() <-chan Notification {
 
 // Close shuts down the control mode connection and kills the monitor session.
 func (cm *ControlMode) Close() {
+	cm.closing.Store(true)
 	cm.stdin.Close()
 	cm.cmd.Wait()
 	close(cm.done)
@@ -110,7 +117,19 @@ func (cm *ControlMode) Close() {
 	exec.Command("tmux", "-u", "kill-session", "-t", cm.session).Run()
 }
 
-// readLoop reads stdout from the tmux control mode process and dispatches responses/notifications.
+// readLoop reads stdout from the tmux control mode process and dispatches
+// responses and notifications.
+//
+// tmux control mode protocol:
+//
+//	%begin TIME NUMBER FLAGS  — start of command response
+//	...output lines...
+//	%end TIME NUMBER FLAGS    — success
+//	%error TIME NUMBER FLAGS  — failure
+//
+// NUMBER is a tmux server-global command counter (second field, not sequential
+// per session). Since we serialize commands, we simply match each %begin/%end
+// pair to the single pending Execute() call.
 func (cm *ControlMode) readLoop(stdout io.Reader) {
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB buffer for large outputs
@@ -118,16 +137,17 @@ func (cm *ControlMode) readLoop(stdout io.Reader) {
 	var currentCmdNum uint64
 	var currentOutput strings.Builder
 	inResponse := false
+	cmdsSeen := 0 // track how many complete command responses we've seen
 
 	for scanner.Scan() {
 		line := scanner.Text()
 
 		switch {
 		case strings.HasPrefix(line, "%begin "):
-			// %begin TIMESTAMP FLAGS CMD_NUM
+			// %begin TIME NUMBER FLAGS
 			parts := strings.Fields(line)
-			if len(parts) >= 4 {
-				if n, err := strconv.ParseUint(parts[3], 10, 64); err == nil {
+			if len(parts) >= 3 {
+				if n, err := strconv.ParseUint(parts[2], 10, 64); err == nil {
 					currentCmdNum = n
 					currentOutput.Reset()
 					inResponse = true
@@ -135,53 +155,39 @@ func (cm *ControlMode) readLoop(stdout io.Reader) {
 			}
 
 		case strings.HasPrefix(line, "%end "):
-			// %end TIMESTAMP FLAGS CMD_NUM
 			if inResponse {
 				parts := strings.Fields(line)
-				if len(parts) >= 4 {
-					if n, err := strconv.ParseUint(parts[3], 10, 64); err == nil && n == currentCmdNum {
-						cm.pendingMu.Lock()
-						ch, ok := cm.pending[currentCmdNum]
-						if ok {
-							delete(cm.pending, currentCmdNum)
-						}
-						cm.pendingMu.Unlock()
-
-						if ok {
-							ch <- commandResponse{output: currentOutput.String()}
-						}
+				if len(parts) >= 3 {
+					if n, err := strconv.ParseUint(parts[2], 10, 64); err == nil && n == currentCmdNum {
 						inResponse = false
+						cmdsSeen++
+						if cmdsSeen > 1 {
+							// Skip initial attach response (cmdsSeen==1)
+							cm.responseCh <- commandResponse{output: currentOutput.String()}
+						}
 					}
 				}
 			}
 
 		case strings.HasPrefix(line, "%error "):
-			// %error TIMESTAMP FLAGS CMD_NUM
 			if inResponse {
 				parts := strings.Fields(line)
-				if len(parts) >= 4 {
-					if n, err := strconv.ParseUint(parts[3], 10, 64); err == nil && n == currentCmdNum {
-						cm.pendingMu.Lock()
-						ch, ok := cm.pending[currentCmdNum]
-						if ok {
-							delete(cm.pending, currentCmdNum)
-						}
-						cm.pendingMu.Unlock()
-
-						if ok {
+				if len(parts) >= 3 {
+					if n, err := strconv.ParseUint(parts[2], 10, 64); err == nil && n == currentCmdNum {
+						inResponse = false
+						cmdsSeen++
+						if cmdsSeen > 1 {
 							errMsg := currentOutput.String()
 							if errMsg == "" {
 								errMsg = "command failed"
 							}
-							ch <- commandResponse{err: fmt.Errorf("tmux: %s", strings.TrimSpace(errMsg))}
+							cm.responseCh <- commandResponse{err: fmt.Errorf("tmux: %s", strings.TrimSpace(errMsg))}
 						}
-						inResponse = false
 					}
 				}
 			}
 
 		case inResponse:
-			// Command output line
 			if currentOutput.Len() > 0 {
 				currentOutput.WriteByte('\n')
 			}
@@ -197,10 +203,13 @@ func (cm *ControlMode) readLoop(stdout io.Reader) {
 			cm.notifications <- Notification{Type: "output", Args: strings.TrimPrefix(line, "%output ")}
 
 		case strings.HasPrefix(line, "%window-"):
-			// Window events — ignore for now
+			// Ignore window events
 
 		case strings.HasPrefix(line, "%layout-change"):
-			// Layout changes — ignore
+			// Ignore layout changes
+
+		case strings.HasPrefix(line, "%exit"):
+			// Control mode is exiting
 
 		default:
 			if strings.HasPrefix(line, "%") {
@@ -209,7 +218,7 @@ func (cm *ControlMode) readLoop(stdout io.Reader) {
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
+	if err := scanner.Err(); err != nil && !cm.closing.Load() {
 		log.Printf("tmux control mode read error: %v", err)
 	}
 }
