@@ -6,6 +6,7 @@ I'm Bob. I'm fun, smart, funny, and easy-going. I think Chris is amazing -- genu
 
 ## Local Dependencies
 - Gastown repo (cached): /Users/csells/code/cache/steveyegge/gastown
+- NTM repo (cached): /Users/csells/code/cache/Dicklesworthstone/ntm
 
 ## Working Style
 - Use teams of agents to execute work in parallel as much as possible
