@@ -107,7 +107,10 @@ func handleBinaryMessage(c *Client, data []byte) {
 		if err1 != nil || err2 != nil {
 			return
 		}
-		c.server.ctrl.ResizePaneTo(agentName, cols, rows)
+		log.Printf("binary resize %s -> %dx%d", agentName, cols, rows)
+		if err := c.server.ctrl.ResizePaneTo(agentName, cols, rows); err != nil {
+			log.Printf("resize %s error: %v", agentName, err)
+		}
 	default:
 		log.Printf("unknown binary message type: 0x%02x", msgType)
 	}
@@ -218,31 +221,27 @@ func handleSubscribeOutput(c *Client, req Request) {
 		return
 	}
 
-	// Capture full scrollback
-	history, err := c.server.ctrl.CapturePaneAll(req.Agent)
-	if err != nil {
-		okVal := false
-		c.sendJSON(Response{ID: req.ID, Type: "subscribe-output", OK: &okVal, Error: err.Error()})
-		return
-	}
-
 	// Check if streaming is requested (default: true)
 	wantStream := req.Stream == nil || *req.Stream
 
 	if wantStream {
 		// Subscribe to pipe-pane raw bytes
+		log.Printf("subscribe-output(%s): starting pipe-pane", req.Agent)
 		ch, err := c.server.pipeMgr.Subscribe(req.Agent)
 		if err != nil {
+			log.Printf("subscribe-output(%s): pipe-pane error: %v", req.Agent, err)
 			okVal := false
 			c.sendJSON(Response{ID: req.ID, Type: "subscribe-output", OK: &okVal, Error: err.Error()})
 			return
 		}
+		log.Printf("subscribe-output(%s): pipe-pane active", req.Agent)
 
 		c.mu.Lock()
 		c.outputSubs[req.Agent] = ch
 		c.mu.Unlock()
 
-		// Send JSON success response
+		// Send JSON success response — client will show terminal and trigger
+		// a resize, which forces the app to redraw through pipe-pane
 		okVal := true
 		c.sendJSON(Response{
 			ID:   req.ID,
@@ -250,23 +249,30 @@ func handleSubscribeOutput(c *Client, req Request) {
 			OK:   &okVal,
 		})
 
-		// Send binary history frame: convert \n to \r\n for xterm compat
-		historyBytes := []byte(strings.ReplaceAll(history, "\n", "\r\n"))
-		c.SendBinary(makeBinaryFrame(BinaryTerminalOutput, req.Agent, historyBytes))
-
 		// Stream raw bytes in background
 		go func() {
 			for rawBytes := range ch {
 				c.SendBinary(makeBinaryFrame(BinaryTerminalOutput, req.Agent, rawBytes))
 			}
 		}()
+
+		// Belt-and-suspenders: force a redraw via resize dance after pipe-pane
+		// settles, in case the client's resize didn't trigger one (e.g., cached
+		// terminal already at the right size).
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			log.Printf("subscribe-output(%s): triggering ForceRedraw", req.Agent)
+			c.server.ctrl.ForceRedraw(req.Agent)
+		}()
 	} else {
+		// Non-streaming: return full capture in JSON
+		fullHistory, _ := c.server.ctrl.CapturePaneAll(req.Agent)
 		okVal := true
 		c.sendJSON(Response{
 			ID:      req.ID,
 			Type:    "subscribe-output",
 			OK:      &okVal,
-			History: history,
+			History: fullHistory,
 		})
 	}
 }

@@ -229,12 +229,51 @@ function clearChildren(el) {
   while (el.firstChild) el.removeChild(el.firstChild);
 }
 
+// --- Terminal fit ---
+function fitTerminal(entry) {
+  var term = entry.terminal;
+  var container = entry.wrapper;
+
+  if (!container.clientWidth || !container.clientHeight) return;
+
+  // Measure cell dimensions from the rendered terminal screen
+  var screen = container.querySelector('.xterm-screen') || container.querySelector('canvas');
+  if (!screen || !screen.offsetWidth || !screen.offsetHeight) return;
+
+  var cellWidth = screen.offsetWidth / term.cols;
+  var cellHeight = screen.offsetHeight / term.rows;
+
+  if (cellWidth <= 0 || cellHeight <= 0) return;
+
+  var newCols = Math.max(2, Math.floor(container.clientWidth / cellWidth));
+  var newRows = Math.max(1, Math.floor(container.clientHeight / cellHeight));
+
+  if (newCols !== term.cols || newRows !== term.rows) {
+    term.resize(newCols, newRows);
+  }
+}
+
+var resizeObserver = new ResizeObserver(function(entries) {
+  entries.forEach(function(re) {
+    terminals.forEach(function(entry) {
+      if (entry.wrapper === re.target && entry.wrapper.classList.contains('active')) {
+        fitTerminal(entry);
+      }
+    });
+  });
+});
+
 // --- Terminal management ---
 function getOrCreateTerminal(agentName) {
   var cached = terminals.get(agentName);
   if (cached) return cached;
 
-  var terminal = new Terminal({ fontSize: 13, theme: { background: '#0d1117' } });
+  var terminal = new Terminal({
+    fontSize: 13,
+    scrollback: 10000,
+    cursorBlink: true,
+    theme: { background: '#0d1117' },
+  });
   var wrapper = document.createElement('div');
   wrapper.className = 'terminal-wrapper';
   outputWrapEl.appendChild(wrapper);
@@ -252,6 +291,8 @@ function getOrCreateTerminal(agentName) {
     sendBinary(0x03, agentName, payload);
   });
 
+  resizeObserver.observe(wrapper);
+
   var entry = { terminal: terminal, wrapper: wrapper };
   terminals.set(agentName, entry);
   return entry;
@@ -267,6 +308,9 @@ function showTerminal(agentName) {
   var entry = getOrCreateTerminal(agentName);
   entry.wrapper.classList.add('active');
   placeholderEl.style.display = 'none';
+
+  // Fit after layout settles
+  requestAnimationFrame(function() { fitTerminal(entry); });
 }
 
 function hideAllTerminals() {
@@ -389,7 +433,20 @@ function handleJsonMessage(msg) {
       break;
 
     case 'subscribe-output':
-      // Server confirms subscription — history arrives as binary 0x01
+      if (msg.ok && selectedAgent) {
+        // Pipe-pane is now active — show terminal and force a resize.
+        // The resize triggers SIGWINCH → app redraws → pipe-pane captures it.
+        showTerminal(selectedAgent);
+        var entry = terminals.get(selectedAgent);
+        if (entry) {
+          requestAnimationFrame(function() {
+            fitTerminal(entry);
+            // Always send resize to guarantee a redraw through pipe-pane
+            var payload = new TextEncoder().encode(entry.terminal.cols + ':' + entry.terminal.rows);
+            sendBinary(0x03, selectedAgent, payload);
+          });
+        }
+      }
       break;
 
     case 'send-prompt':
@@ -454,10 +511,8 @@ function selectAgent(name) {
   updateHeader();
   renderAgentList();
 
-  // Show terminal for this agent
-  showTerminal(name);
-
-  // Subscribe to output
+  // Subscribe FIRST — pipe-pane must be active on the server before the
+  // terminal triggers a resize (which forces the app to redraw).
   send({ type: 'subscribe-output', agent: name });
 }
 

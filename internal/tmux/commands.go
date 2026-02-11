@@ -2,7 +2,11 @@ package tmux
 
 import (
 	"fmt"
+	"log"
+	"strconv"
 	"strings"
+	"syscall"
+	"time"
 )
 
 // SessionInfo holds basic tmux session information.
@@ -105,6 +109,79 @@ func (cm *ControlMode) CapturePaneAll(session string) (string, error) {
 	return cm.Execute(fmt.Sprintf("capture-pane -p -e -t '%s' -S -", session))
 }
 
+// CapturePaneHistory captures only the scrollback history (above the visible area).
+// Returns empty string if there is no scrollback.
+func (cm *ControlMode) CapturePaneHistory(session string) (string, error) {
+	out, err := cm.Execute(fmt.Sprintf("capture-pane -p -e -t '%s' -S - -E -1", session))
+	if err != nil {
+		return "", nil // no history lines — not an error
+	}
+	return out, nil
+}
+
+// ForceRedraw triggers a SIGWINCH by briefly changing the window size.
+// Uses resize-window (not resize-pane) because single-pane windows
+// constrain the pane to the window size, making resize-pane a no-op.
+func (cm *ControlMode) ForceRedraw(session string) {
+	log.Printf("ForceRedraw(%s): starting", session)
+
+	sizeStr, err := cm.DisplayMessage(session, "#{window_width}:#{window_height}")
+	if err != nil {
+		log.Printf("ForceRedraw(%s): display-message error: %v", session, err)
+		cm.forceRedrawViaSIGWINCH(session)
+		return
+	}
+	log.Printf("ForceRedraw(%s): window size = %s", session, sizeStr)
+
+	parts := strings.SplitN(sizeStr, ":", 2)
+	if len(parts) != 2 {
+		log.Printf("ForceRedraw(%s): unexpected format: %q", session, sizeStr)
+		cm.forceRedrawViaSIGWINCH(session)
+		return
+	}
+	width, _ := strconv.Atoi(parts[0])
+	height, _ := strconv.Atoi(parts[1])
+	if width <= 0 || height <= 1 {
+		log.Printf("ForceRedraw(%s): invalid dimensions %dx%d", session, width, height)
+		cm.forceRedrawViaSIGWINCH(session)
+		return
+	}
+
+	if err := cm.ResizeWindow(session, width, height-1); err != nil {
+		log.Printf("ForceRedraw(%s): shrink window error: %v — trying SIGWINCH", session, err)
+		cm.forceRedrawViaSIGWINCH(session)
+		return
+	}
+	time.Sleep(50 * time.Millisecond)
+	if err := cm.ResizeWindow(session, width, height); err != nil {
+		log.Printf("ForceRedraw(%s): restore window error: %v", session, err)
+	}
+	log.Printf("ForceRedraw(%s): window resize dance complete", session)
+}
+
+// forceRedrawViaSIGWINCH sends SIGWINCH directly to the pane's process group.
+func (cm *ControlMode) forceRedrawViaSIGWINCH(session string) {
+	info, err := cm.GetPaneInfo(session)
+	if err != nil {
+		log.Printf("forceRedrawViaSIGWINCH(%s): get pane info: %v", session, err)
+		return
+	}
+	pid, err := strconv.Atoi(info.PID)
+	if err != nil {
+		log.Printf("forceRedrawViaSIGWINCH(%s): parse PID %q: %v", session, info.PID, err)
+		return
+	}
+	// Send to process group (negative PID)
+	if err := syscall.Kill(-pid, syscall.SIGWINCH); err != nil {
+		log.Printf("forceRedrawViaSIGWINCH(%s): kill -%d: %v", session, pid, err)
+		// Try positive PID as fallback
+		if err := syscall.Kill(pid, syscall.SIGWINCH); err != nil {
+			log.Printf("forceRedrawViaSIGWINCH(%s): kill %d: %v", session, pid, err)
+		}
+	}
+	log.Printf("forceRedrawViaSIGWINCH(%s): sent SIGWINCH to pid %d", session, pid)
+}
+
 // ResizePane adjusts the pane height by delta (e.g., "-1" or "+1").
 func (cm *ControlMode) ResizePane(target, delta string) error {
 	_, err := cm.Execute(fmt.Sprintf("resize-pane -t '%s' -y %s", target, delta))
@@ -132,9 +209,15 @@ func (cm *ControlMode) PipePaneStop(session string) error {
 	return err
 }
 
-// ResizePaneTo sets the pane to an exact size.
+// ResizePaneTo sets the pane (and its window) to an exact size.
+// Uses resize-window because single-pane windows constrain the pane to window size.
 func (cm *ControlMode) ResizePaneTo(target string, cols, rows int) error {
-	_, err := cm.Execute(fmt.Sprintf("resize-pane -t '%s' -x %d -y %d", target, cols, rows))
+	return cm.ResizeWindow(target, cols, rows)
+}
+
+// ResizeWindow sets a session's window to an exact size.
+func (cm *ControlMode) ResizeWindow(target string, cols, rows int) error {
+	_, err := cm.Execute(fmt.Sprintf("resize-window -t '%s' -x %d -y %d", target, cols, rows))
 	return err
 }
 
