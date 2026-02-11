@@ -316,6 +316,15 @@ func handleSubscribeOutput(c *Client, req Request) {
 			OK:   &okVal,
 		})
 
+		// Prime the client with the current pane snapshot immediately.
+		// Without this, quiet sessions (e.g., paused agents) can appear blank
+		// until new output is emitted through pipe-pane.
+		if snap, err := c.server.ctrl.CapturePaneAll(req.Agent); err != nil {
+			log.Printf("subscribe-output(%s): capture snapshot error: %v", req.Agent, err)
+		} else if snap != "" {
+			c.SendBinary(makeBinaryFrame(BinaryTerminalOutput, req.Agent, []byte(snap)))
+		}
+
 		// Stream raw bytes in background
 		go func() {
 			for rawBytes := range ch {
