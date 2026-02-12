@@ -1,2 +1,3 @@
 tmp/test_client.go
 tmp/tmux-adapter
+tmp/server.log

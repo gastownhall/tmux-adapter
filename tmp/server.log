@@ -194,3 +194,501 @@
 2026/02/12 15:00:01 ForceRedraw(hq-mayor): starting
 2026/02/12 15:00:01 ForceRedraw(hq-mayor): window size = 154:46
 2026/02/12 15:00:01 ForceRedraw(hq-mayor): window resize dance complete
+2026/02/12 15:01:29 binary resize hq-mayor -> 147x46
+2026/02/12 15:01:29 binary resize hq-mayor -> 138x46
+2026/02/12 15:01:29 binary resize hq-mayor -> 122x45
+2026/02/12 15:01:29 binary resize hq-mayor -> 107x43
+2026/02/12 15:01:29 binary resize hq-mayor -> 100x42
+2026/02/12 15:01:29 binary resize hq-mayor -> 94x41
+2026/02/12 15:01:29 binary resize hq-mayor -> 90x41
+2026/02/12 15:01:29 binary resize hq-mayor -> 87x40
+2026/02/12 15:01:29 binary resize hq-mayor -> 85x40
+2026/02/12 15:01:29 binary resize hq-mayor -> 84x40
+2026/02/12 15:01:29 binary resize hq-mayor -> 83x39
+2026/02/12 15:01:29 binary resize hq-mayor -> 82x39
+2026/02/12 15:01:30 binary resize hq-mayor -> 81x39
+2026/02/12 15:01:30 binary resize hq-mayor -> 81x38
+2026/02/12 15:01:30 binary resize hq-mayor -> 80x38
+2026/02/12 15:01:30 binary resize hq-mayor -> 111x36
+2026/02/12 15:01:30 binary resize hq-mayor -> 110x35
+2026/02/12 15:01:30 binary resize hq-mayor -> 109x34
+2026/02/12 15:01:30 binary resize hq-mayor -> 108x34
+2026/02/12 15:01:30 binary resize hq-mayor -> 107x33
+2026/02/12 15:01:31 binary resize hq-mayor -> 108x33
+2026/02/12 15:01:31 binary resize hq-mayor -> 109x33
+2026/02/12 15:01:31 binary resize hq-mayor -> 112x33
+2026/02/12 15:01:31 binary resize hq-mayor -> 83x33
+2026/02/12 15:01:31 binary resize hq-mayor -> 87x32
+2026/02/12 15:01:31 binary resize hq-mayor -> 88x32
+2026/02/12 15:01:31 binary resize hq-mayor -> 91x32
+2026/02/12 15:01:31 binary resize hq-mayor -> 92x32
+2026/02/12 15:01:31 binary resize hq-mayor -> 93x32
+2026/02/12 15:01:31 binary resize hq-mayor -> 94x32
+2026/02/12 15:01:31 binary resize hq-mayor -> 95x32
+2026/02/12 15:01:31 binary resize hq-mayor -> 96x32
+2026/02/12 15:01:32 binary resize hq-mayor -> 96x31
+2026/02/12 15:01:32 binary resize hq-mayor -> 97x30
+2026/02/12 15:01:32 binary resize hq-mayor -> 98x30
+2026/02/12 15:01:32 binary resize hq-mayor -> 99x29
+2026/02/12 15:01:32 binary resize hq-mayor -> 100x28
+2026/02/12 15:01:32 binary resize hq-mayor -> 101x27
+2026/02/12 15:01:32 binary resize hq-mayor -> 102x26
+2026/02/12 15:01:32 binary resize hq-mayor -> 103x26
+2026/02/12 15:01:32 binary resize hq-mayor -> 103x25
+2026/02/12 15:01:32 binary resize hq-mayor -> 104x25
+2026/02/12 15:01:33 binary resize hq-mayor -> 104x26
+2026/02/12 15:01:33 binary resize hq-mayor -> 104x27
+2026/02/12 15:01:33 binary resize hq-mayor -> 104x28
+2026/02/12 15:05:44 tmux monitor session create (adapter-monitor): exit status 1
+2026/02/12 15:05:44 connected to tmux control mode
+2026/02/12 15:05:44 agent registry started (3 agents found)
+2026/02/12 15:05:44 Dashboard at http://localhost:8080/
+2026/02/12 15:05:44 WebSocket server listening on ws://localhost:8080/ws
+2026/02/12 15:05:44 watching gastown at /Users/csells/gt
+2026/02/12 15:05:44 client connected (1 total)
+2026/02/12 15:05:44 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 15:05:44 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 15:05:44 subscribe-output(hq-mayor): capture snapshot error: tmux: no alternate screen
+2026/02/12 15:05:44 binary resize hq-mayor -> 104x28
+2026/02/12 15:06:17 client disconnected (0 remaining)
+2026/02/12 15:06:17 client connected (1 total)
+2026/02/12 15:06:19 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 15:06:19 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 15:06:19 subscribe-output(hq-mayor): capture snapshot error: tmux: no alternate screen
+2026/02/12 15:06:19 binary resize hq-mayor -> 104x28
+2026/02/12 15:06:19 binary resize hq-mayor -> 104x28
+2026/02/12 15:06:24 binary resize hq-mayor -> 105x27
+2026/02/12 15:06:26 binary resize hq-mayor -> 104x28
+2026/02/12 15:06:27 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 15:06:27 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 15:06:27 subscribe-output(hq-deacon): capture snapshot error: tmux: no alternate screen
+2026/02/12 15:06:27 binary resize hq-deacon -> 104x28
+2026/02/12 15:06:27 binary resize hq-deacon -> 104x28
+2026/02/12 15:06:28 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 15:06:28 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 15:06:28 subscribe-output(hq-mayor): capture snapshot error: tmux: no alternate screen
+2026/02/12 15:06:28 binary resize hq-mayor -> 104x28
+2026/02/12 15:06:29 subscribe-output(gt-hello_gastown-crew-bob): starting pipe-pane
+2026/02/12 15:06:29 subscribe-output(gt-hello_gastown-crew-bob): pipe-pane active
+2026/02/12 15:06:29 subscribe-output(gt-hello_gastown-crew-bob): capture snapshot error: tmux: no alternate screen
+2026/02/12 15:06:29 binary resize gt-hello_gastown-crew-bob -> 104x28
+2026/02/12 15:06:29 binary resize gt-hello_gastown-crew-bob -> 104x28
+2026/02/12 15:06:29 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 15:06:29 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 15:06:29 subscribe-output(hq-deacon): capture snapshot error: tmux: no alternate screen
+2026/02/12 15:06:29 binary resize hq-deacon -> 104x28
+2026/02/12 15:06:30 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 15:06:30 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 15:06:30 subscribe-output(hq-mayor): capture snapshot error: tmux: no alternate screen
+2026/02/12 15:06:30 binary resize hq-mayor -> 104x28
+2026/02/12 15:06:33 binary resize hq-mayor -> 105x28
+2026/02/12 15:06:33 binary resize hq-mayor -> 106x28
+2026/02/12 15:06:33 binary resize hq-mayor -> 107x29
+2026/02/12 15:06:33 binary resize hq-mayor -> 109x29
+2026/02/12 15:06:33 binary resize hq-mayor -> 111x30
+2026/02/12 15:06:33 binary resize hq-mayor -> 114x31
+2026/02/12 15:06:33 binary resize hq-mayor -> 117x32
+2026/02/12 15:06:33 binary resize hq-mayor -> 120x34
+2026/02/12 15:06:33 binary resize hq-mayor -> 124x35
+2026/02/12 15:06:33 binary resize hq-mayor -> 128x36
+2026/02/12 15:06:33 binary resize hq-mayor -> 131x38
+2026/02/12 15:06:33 binary resize hq-mayor -> 135x39
+2026/02/12 15:06:33 binary resize hq-mayor -> 139x40
+2026/02/12 15:06:33 binary resize hq-mayor -> 142x42
+2026/02/12 15:06:33 binary resize hq-mayor -> 145x43
+2026/02/12 15:06:33 binary resize hq-mayor -> 148x44
+2026/02/12 15:06:33 binary resize hq-mayor -> 150x45
+2026/02/12 15:06:33 binary resize hq-mayor -> 152x45
+2026/02/12 15:06:33 binary resize hq-mayor -> 153x46
+2026/02/12 15:06:33 binary resize hq-mayor -> 154x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 146x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 130x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 127x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 115x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 112x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 107x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 104x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 102x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 99x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 98x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 96x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 95x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 94x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 93x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 92x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 91x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 90x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 89x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 88x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 87x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 86x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 84x46
+2026/02/12 15:06:35 binary resize hq-mayor -> 83x46
+2026/02/12 15:06:36 binary resize hq-mayor -> 80x46
+2026/02/12 15:06:36 binary resize hq-mayor -> 112x45
+2026/02/12 15:06:36 binary resize hq-mayor -> 110x45
+2026/02/12 15:06:36 binary resize hq-mayor -> 109x45
+2026/02/12 15:06:36 binary resize hq-mayor -> 110x45
+2026/02/12 15:06:36 binary resize hq-mayor -> 112x45
+2026/02/12 15:06:36 binary resize hq-mayor -> 81x46
+2026/02/12 15:06:36 binary resize hq-mayor -> 82x46
+2026/02/12 15:06:36 binary resize hq-mayor -> 84x46
+2026/02/12 15:06:36 binary resize hq-mayor -> 85x46
+2026/02/12 15:06:36 binary resize hq-mayor -> 88x46
+2026/02/12 15:06:36 binary resize hq-mayor -> 92x46
+2026/02/12 15:06:36 binary resize hq-mayor -> 96x46
+2026/02/12 15:06:36 binary resize hq-mayor -> 102x46
+2026/02/12 15:06:36 binary resize hq-mayor -> 106x46
+2026/02/12 15:06:36 binary resize hq-mayor -> 109x46
+2026/02/12 15:06:36 binary resize hq-mayor -> 111x46
+2026/02/12 15:06:36 binary resize hq-mayor -> 112x46
+2026/02/12 15:06:36 binary resize hq-mayor -> 113x46
+2026/02/12 15:06:36 binary resize hq-mayor -> 114x46
+2026/02/12 15:06:36 binary resize hq-mayor -> 115x46
+2026/02/12 15:06:37 binary resize hq-mayor -> 116x46
+2026/02/12 15:06:37 binary resize hq-mayor -> 115x46
+2026/02/12 15:06:37 binary resize hq-mayor -> 113x46
+2026/02/12 15:06:37 binary resize hq-mayor -> 111x46
+2026/02/12 15:06:37 binary resize hq-mayor -> 109x46
+2026/02/12 15:06:37 binary resize hq-mayor -> 106x46
+2026/02/12 15:06:37 binary resize hq-mayor -> 103x46
+2026/02/12 15:06:37 binary resize hq-mayor -> 102x46
+2026/02/12 15:06:37 binary resize hq-mayor -> 101x46
+2026/02/12 15:06:37 binary resize hq-mayor -> 100x46
+2026/02/12 15:06:37 binary resize hq-mayor -> 99x46
+2026/02/12 15:06:37 binary resize hq-mayor -> 98x46
+2026/02/12 15:06:37 binary resize hq-mayor -> 97x46
+2026/02/12 15:06:37 binary resize hq-mayor -> 96x46
+2026/02/12 15:06:37 binary resize hq-mayor -> 95x46
+2026/02/12 15:06:38 binary resize hq-mayor -> 96x46
+2026/02/12 15:06:38 binary resize hq-mayor -> 97x46
+2026/02/12 15:06:38 binary resize hq-mayor -> 98x46
+2026/02/12 15:06:38 binary resize hq-mayor -> 99x46
+2026/02/12 15:06:38 binary resize hq-mayor -> 102x46
+2026/02/12 15:06:38 binary resize hq-mayor -> 104x46
+2026/02/12 15:06:38 binary resize hq-mayor -> 107x46
+2026/02/12 15:06:38 binary resize hq-mayor -> 109x46
+2026/02/12 15:06:38 binary resize hq-mayor -> 111x46
+2026/02/12 15:06:38 binary resize hq-mayor -> 112x46
+2026/02/12 15:06:38 binary resize hq-mayor -> 113x46
+2026/02/12 15:06:39 binary resize hq-mayor -> 112x46
+2026/02/12 15:06:39 binary resize hq-mayor -> 109x46
+2026/02/12 15:06:39 binary resize hq-mayor -> 105x46
+2026/02/12 15:06:39 binary resize hq-mayor -> 100x46
+2026/02/12 15:06:39 binary resize hq-mayor -> 89x46
+2026/02/12 15:06:39 binary resize hq-mayor -> 85x46
+2026/02/12 15:06:39 binary resize hq-mayor -> 81x46
+2026/02/12 15:06:39 binary resize hq-mayor -> 112x45
+2026/02/12 15:06:39 binary resize hq-mayor -> 110x45
+2026/02/12 15:06:39 binary resize hq-mayor -> 109x45
+2026/02/12 15:06:39 binary resize hq-mayor -> 110x45
+2026/02/12 15:06:39 binary resize hq-mayor -> 111x45
+2026/02/12 15:06:39 binary resize hq-mayor -> 81x46
+2026/02/12 15:06:39 binary resize hq-mayor -> 85x46
+2026/02/12 15:06:39 binary resize hq-mayor -> 90x46
+2026/02/12 15:06:39 binary resize hq-mayor -> 93x46
+2026/02/12 15:06:39 binary resize hq-mayor -> 96x46
+2026/02/12 15:06:39 binary resize hq-mayor -> 98x46
+2026/02/12 15:06:39 binary resize hq-mayor -> 100x46
+2026/02/12 15:06:39 binary resize hq-mayor -> 101x46
+2026/02/12 15:06:39 binary resize hq-mayor -> 102x46
+2026/02/12 15:06:40 binary resize hq-mayor -> 100x46
+2026/02/12 15:06:40 binary resize hq-mayor -> 93x46
+2026/02/12 15:06:40 binary resize hq-mayor -> 87x46
+2026/02/12 15:06:40 binary resize hq-mayor -> 86x46
+2026/02/12 15:06:40 binary resize hq-mayor -> 82x46
+2026/02/12 15:06:40 binary resize hq-mayor -> 81x46
+2026/02/12 15:06:40 binary resize hq-mayor -> 80x46
+2026/02/12 15:06:40 binary resize hq-mayor -> 112x45
+2026/02/12 15:06:41 binary resize hq-mayor -> 80x46
+2026/02/12 15:06:41 binary resize hq-mayor -> 87x46
+2026/02/12 15:06:41 binary resize hq-mayor -> 103x46
+2026/02/12 15:06:41 binary resize hq-mayor -> 118x46
+2026/02/12 15:06:41 binary resize hq-mayor -> 136x46
+2026/02/12 15:06:41 binary resize hq-mayor -> 152x46
+2026/02/12 15:06:41 binary resize hq-mayor -> 154x46
+2026/02/12 15:06:55 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 15:06:55 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 15:06:55 subscribe-output(hq-deacon): capture snapshot error: tmux: no alternate screen
+2026/02/12 15:06:55 binary resize hq-deacon -> 154x46
+2026/02/12 15:06:55 binary resize hq-deacon -> 154x46
+2026/02/12 15:06:57 subscribe-output(gt-hello_gastown-crew-bob): starting pipe-pane
+2026/02/12 15:06:57 subscribe-output(gt-hello_gastown-crew-bob): pipe-pane active
+2026/02/12 15:06:57 subscribe-output(gt-hello_gastown-crew-bob): capture snapshot error: tmux: no alternate screen
+2026/02/12 15:06:57 binary resize gt-hello_gastown-crew-bob -> 154x46
+2026/02/12 15:06:57 binary resize gt-hello_gastown-crew-bob -> 154x46
+2026/02/12 15:07:02 binary resize gt-hello_gastown-crew-bob -> 146x46
+2026/02/12 15:07:02 binary resize gt-hello_gastown-crew-bob -> 133x46
+2026/02/12 15:07:02 binary resize gt-hello_gastown-crew-bob -> 124x46
+2026/02/12 15:07:02 binary resize gt-hello_gastown-crew-bob -> 120x46
+2026/02/12 15:07:02 binary resize gt-hello_gastown-crew-bob -> 114x46
+2026/02/12 15:07:02 binary resize gt-hello_gastown-crew-bob -> 111x46
+2026/02/12 15:07:02 binary resize gt-hello_gastown-crew-bob -> 108x46
+2026/02/12 15:07:02 binary resize gt-hello_gastown-crew-bob -> 106x46
+2026/02/12 15:07:02 binary resize gt-hello_gastown-crew-bob -> 104x46
+2026/02/12 15:07:02 binary resize gt-hello_gastown-crew-bob -> 102x46
+2026/02/12 15:07:02 binary resize gt-hello_gastown-crew-bob -> 101x46
+2026/02/12 15:07:02 binary resize gt-hello_gastown-crew-bob -> 100x46
+2026/02/12 15:07:03 binary resize gt-hello_gastown-crew-bob -> 99x46
+2026/02/12 15:07:03 binary resize gt-hello_gastown-crew-bob -> 98x46
+2026/02/12 15:07:03 binary resize gt-hello_gastown-crew-bob -> 96x46
+2026/02/12 15:07:03 binary resize gt-hello_gastown-crew-bob -> 94x46
+2026/02/12 15:07:03 binary resize gt-hello_gastown-crew-bob -> 91x46
+2026/02/12 15:07:03 binary resize gt-hello_gastown-crew-bob -> 89x46
+2026/02/12 15:07:03 binary resize gt-hello_gastown-crew-bob -> 87x46
+2026/02/12 15:07:03 binary resize gt-hello_gastown-crew-bob -> 86x46
+2026/02/12 15:07:03 binary resize gt-hello_gastown-crew-bob -> 84x46
+2026/02/12 15:07:03 binary resize gt-hello_gastown-crew-bob -> 83x46
+2026/02/12 15:07:04 binary resize gt-hello_gastown-crew-bob -> 84x46
+2026/02/12 15:07:04 binary resize gt-hello_gastown-crew-bob -> 87x46
+2026/02/12 15:07:04 binary resize gt-hello_gastown-crew-bob -> 93x46
+2026/02/12 15:07:04 binary resize gt-hello_gastown-crew-bob -> 100x46
+2026/02/12 15:07:04 binary resize gt-hello_gastown-crew-bob -> 102x46
+2026/02/12 15:07:04 binary resize gt-hello_gastown-crew-bob -> 104x46
+2026/02/12 15:07:04 binary resize gt-hello_gastown-crew-bob -> 105x46
+2026/02/12 15:07:04 binary resize gt-hello_gastown-crew-bob -> 106x46
+2026/02/12 15:07:04 binary resize gt-hello_gastown-crew-bob -> 107x46
+2026/02/12 15:07:04 binary resize gt-hello_gastown-crew-bob -> 106x46
+2026/02/12 15:07:04 binary resize gt-hello_gastown-crew-bob -> 102x46
+2026/02/12 15:07:04 binary resize gt-hello_gastown-crew-bob -> 98x46
+2026/02/12 15:07:04 binary resize gt-hello_gastown-crew-bob -> 93x46
+2026/02/12 15:07:04 binary resize gt-hello_gastown-crew-bob -> 86x46
+2026/02/12 15:07:04 binary resize gt-hello_gastown-crew-bob -> 84x46
+2026/02/12 15:07:04 binary resize gt-hello_gastown-crew-bob -> 81x46
+2026/02/12 15:07:05 binary resize gt-hello_gastown-crew-bob -> 112x45
+2026/02/12 15:07:05 binary resize gt-hello_gastown-crew-bob -> 110x45
+2026/02/12 15:07:05 binary resize gt-hello_gastown-crew-bob -> 109x45
+2026/02/12 15:07:05 binary resize gt-hello_gastown-crew-bob -> 108x45
+2026/02/12 15:07:05 binary resize gt-hello_gastown-crew-bob -> 109x45
+2026/02/12 15:07:05 binary resize gt-hello_gastown-crew-bob -> 110x45
+2026/02/12 15:07:05 binary resize gt-hello_gastown-crew-bob -> 112x45
+2026/02/12 15:07:05 binary resize gt-hello_gastown-crew-bob -> 80x46
+2026/02/12 15:07:05 binary resize gt-hello_gastown-crew-bob -> 82x46
+2026/02/12 15:07:05 binary resize gt-hello_gastown-crew-bob -> 84x46
+2026/02/12 15:07:05 binary resize gt-hello_gastown-crew-bob -> 87x46
+2026/02/12 15:07:05 binary resize gt-hello_gastown-crew-bob -> 91x46
+2026/02/12 15:07:05 binary resize gt-hello_gastown-crew-bob -> 95x46
+2026/02/12 15:07:05 binary resize gt-hello_gastown-crew-bob -> 98x46
+2026/02/12 15:07:05 binary resize gt-hello_gastown-crew-bob -> 100x46
+2026/02/12 15:07:05 binary resize gt-hello_gastown-crew-bob -> 102x46
+2026/02/12 15:07:05 binary resize gt-hello_gastown-crew-bob -> 103x46
+2026/02/12 15:07:05 binary resize gt-hello_gastown-crew-bob -> 105x46
+2026/02/12 15:07:05 binary resize gt-hello_gastown-crew-bob -> 106x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 109x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 111x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 114x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 115x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 118x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 119x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 120x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 122x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 123x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 125x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 128x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 129x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 131x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 132x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 133x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 134x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 135x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 137x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 140x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 147x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 153x46
+2026/02/12 15:07:06 binary resize gt-hello_gastown-crew-bob -> 154x46
+2026/02/12 15:07:07 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 15:07:07 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 15:07:07 subscribe-output(hq-deacon): capture snapshot error: tmux: no alternate screen
+2026/02/12 15:07:07 binary resize hq-deacon -> 154x46
+2026/02/12 15:07:09 binary resize hq-deacon -> 137x46
+2026/02/12 15:07:09 binary resize hq-deacon -> 116x46
+2026/02/12 15:07:09 binary resize hq-deacon -> 94x46
+2026/02/12 15:07:09 binary resize hq-deacon -> 82x46
+2026/02/12 15:07:09 binary resize hq-deacon -> 112x45
+2026/02/12 15:07:09 binary resize hq-deacon -> 109x45
+2026/02/12 15:07:09 binary resize hq-deacon -> 108x45
+2026/02/12 15:07:10 binary resize hq-deacon -> 110x45
+2026/02/12 15:07:10 binary resize hq-deacon -> 84x46
+2026/02/12 15:07:10 binary resize hq-deacon -> 95x46
+2026/02/12 15:07:10 binary resize hq-deacon -> 107x46
+2026/02/12 15:07:10 binary resize hq-deacon -> 123x46
+2026/02/12 15:07:10 binary resize hq-deacon -> 141x46
+2026/02/12 15:07:10 binary resize hq-deacon -> 154x46
+2026/02/12 15:07:10 binary resize hq-deacon -> 151x46
+2026/02/12 15:07:10 binary resize hq-deacon -> 140x46
+2026/02/12 15:07:10 binary resize hq-deacon -> 119x46
+2026/02/12 15:07:10 binary resize hq-deacon -> 104x46
+2026/02/12 15:07:10 binary resize hq-deacon -> 95x46
+2026/02/12 15:07:10 binary resize hq-deacon -> 86x46
+2026/02/12 15:07:10 binary resize hq-deacon -> 82x46
+2026/02/12 15:07:10 binary resize hq-deacon -> 111x45
+2026/02/12 15:07:10 binary resize hq-deacon -> 109x45
+2026/02/12 15:07:10 binary resize hq-deacon -> 108x45
+2026/02/12 15:07:11 binary resize hq-deacon -> 109x45
+2026/02/12 15:07:11 binary resize hq-deacon -> 80x46
+2026/02/12 15:07:11 binary resize hq-deacon -> 91x46
+2026/02/12 15:07:11 binary resize hq-deacon -> 101x46
+2026/02/12 15:07:11 binary resize hq-deacon -> 115x46
+2026/02/12 15:07:11 binary resize hq-deacon -> 130x46
+2026/02/12 15:07:11 binary resize hq-deacon -> 153x46
+2026/02/12 15:07:11 binary resize hq-deacon -> 154x46
+2026/02/12 15:07:12 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 15:07:12 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 15:07:12 subscribe-output(hq-mayor): capture snapshot error: tmux: no alternate screen
+2026/02/12 15:07:12 binary resize hq-mayor -> 154x46
+2026/02/12 15:07:14 binary resize hq-mayor -> 142x46
+2026/02/12 15:07:14 binary resize hq-mayor -> 123x46
+2026/02/12 15:07:14 binary resize hq-mayor -> 108x46
+2026/02/12 15:07:14 binary resize hq-mayor -> 99x46
+2026/02/12 15:07:14 binary resize hq-mayor -> 95x46
+2026/02/12 15:07:14 binary resize hq-mayor -> 93x46
+2026/02/12 15:07:14 binary resize hq-mayor -> 91x46
+2026/02/12 15:07:14 binary resize hq-mayor -> 89x46
+2026/02/12 15:07:14 binary resize hq-mayor -> 88x46
+2026/02/12 15:07:14 binary resize hq-mayor -> 86x46
+2026/02/12 15:07:14 binary resize hq-mayor -> 84x46
+2026/02/12 15:07:14 binary resize hq-mayor -> 83x46
+2026/02/12 15:07:14 binary resize hq-mayor -> 82x46
+2026/02/12 15:07:15 binary resize hq-mayor -> 81x46
+2026/02/12 15:07:15 binary resize hq-mayor -> 110x45
+2026/02/12 15:07:15 binary resize hq-mayor -> 105x45
+2026/02/12 15:07:15 binary resize hq-mayor -> 96x45
+2026/02/12 15:07:15 binary resize hq-mayor -> 90x45
+2026/02/12 15:07:15 binary resize hq-mayor -> 85x45
+2026/02/12 15:07:15 binary resize hq-mayor -> 82x45
+2026/02/12 15:07:15 binary resize hq-mayor -> 80x45
+2026/02/12 15:07:16 binary resize hq-mayor -> 81x45
+2026/02/12 15:07:16 binary resize hq-mayor -> 83x45
+2026/02/12 15:07:16 binary resize hq-mayor -> 86x45
+2026/02/12 15:07:16 binary resize hq-mayor -> 88x45
+2026/02/12 15:07:16 binary resize hq-mayor -> 91x45
+2026/02/12 15:07:16 binary resize hq-mayor -> 94x45
+2026/02/12 15:07:16 binary resize hq-mayor -> 100x45
+2026/02/12 15:07:16 binary resize hq-mayor -> 107x45
+2026/02/12 15:07:16 binary resize hq-mayor -> 83x46
+2026/02/12 15:07:16 binary resize hq-mayor -> 94x46
+2026/02/12 15:07:16 binary resize hq-mayor -> 99x46
+2026/02/12 15:07:16 binary resize hq-mayor -> 115x46
+2026/02/12 15:07:16 binary resize hq-mayor -> 121x46
+2026/02/12 15:07:16 binary resize hq-mayor -> 127x46
+2026/02/12 15:07:16 binary resize hq-mayor -> 135x46
+2026/02/12 15:07:16 binary resize hq-mayor -> 138x46
+2026/02/12 15:07:16 binary resize hq-mayor -> 144x46
+2026/02/12 15:07:16 binary resize hq-mayor -> 148x46
+2026/02/12 15:07:16 binary resize hq-mayor -> 152x46
+2026/02/12 15:07:16 binary resize hq-mayor -> 154x46
+2026/02/12 15:08:23 tmux monitor session create (adapter-monitor): exit status 1
+2026/02/12 15:08:23 connected to tmux control mode
+2026/02/12 15:08:23 agent registry started (3 agents found)
+2026/02/12 15:08:23 Dashboard at http://localhost:8080/
+2026/02/12 15:08:23 WebSocket server listening on ws://localhost:8080/ws
+2026/02/12 15:08:23 watching gastown at /Users/csells/gt
+2026/02/12 15:08:24 client connected (1 total)
+2026/02/12 15:08:24 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 15:08:24 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 15:08:24 binary resize hq-mayor -> 154x46
+2026/02/12 15:11:37 tmux monitor session create (adapter-monitor): exit status 1
+2026/02/12 15:11:37 connected to tmux control mode
+2026/02/12 15:11:37 agent registry started (3 agents found)
+2026/02/12 15:11:37 Dashboard at http://localhost:8080/
+2026/02/12 15:11:37 WebSocket server listening on ws://localhost:8080/ws
+2026/02/12 15:11:37 watching gastown at /Users/csells/gt
+2026/02/12 15:11:39 client connected (1 total)
+2026/02/12 15:11:39 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 15:11:39 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 15:11:39 binary resize hq-mayor -> 154x46
+2026/02/12 15:12:39 binary resize hq-mayor -> 151x46
+2026/02/12 15:12:39 binary resize hq-mayor -> 145x46
+2026/02/12 15:12:39 binary resize hq-mayor -> 126x46
+2026/02/12 15:12:39 binary resize hq-mayor -> 120x46
+2026/02/12 15:12:39 binary resize hq-mayor -> 115x46
+2026/02/12 15:12:39 binary resize hq-mayor -> 113x46
+2026/02/12 15:12:39 binary resize hq-mayor -> 112x46
+2026/02/12 15:12:39 binary resize hq-mayor -> 110x46
+2026/02/12 15:12:39 binary resize hq-mayor -> 109x46
+2026/02/12 15:12:39 binary resize hq-mayor -> 108x46
+2026/02/12 15:12:39 binary resize hq-mayor -> 107x46
+2026/02/12 15:12:41 binary resize hq-mayor -> 108x46
+2026/02/12 15:12:41 binary resize hq-mayor -> 109x46
+2026/02/12 15:12:41 binary resize hq-mayor -> 110x46
+2026/02/12 15:12:41 binary resize hq-mayor -> 111x46
+2026/02/12 15:12:41 binary resize hq-mayor -> 113x46
+2026/02/12 15:12:41 binary resize hq-mayor -> 115x46
+2026/02/12 15:12:42 binary resize hq-mayor -> 117x46
+2026/02/12 15:12:42 binary resize hq-mayor -> 123x46
+2026/02/12 15:12:42 binary resize hq-mayor -> 142x46
+2026/02/12 15:12:42 binary resize hq-mayor -> 149x46
+2026/02/12 15:12:42 binary resize hq-mayor -> 153x46
+2026/02/12 15:12:42 binary resize hq-mayor -> 154x46
+2026/02/12 15:12:44 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 15:12:44 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 15:12:44 binary resize hq-deacon -> 154x46
+2026/02/12 15:12:46 client disconnected (0 remaining)
+2026/02/12 15:12:46 client connected (1 total)
+2026/02/12 15:12:48 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 15:12:48 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 15:12:48 binary resize hq-deacon -> 154x46
+2026/02/12 15:12:48 binary resize hq-deacon -> 154x46
+2026/02/12 15:13:03 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 15:13:03 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 15:13:03 binary resize hq-mayor -> 154x46
+2026/02/12 15:13:03 binary resize hq-mayor -> 154x46
+2026/02/12 15:13:04 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 15:13:04 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 15:13:04 binary resize hq-deacon -> 154x46
+2026/02/12 15:13:04 subscribe-output(gt-hello_gastown-crew-bob): starting pipe-pane
+2026/02/12 15:13:04 subscribe-output(gt-hello_gastown-crew-bob): pipe-pane active
+2026/02/12 15:13:04 binary resize gt-hello_gastown-crew-bob -> 154x46
+2026/02/12 15:13:04 binary resize gt-hello_gastown-crew-bob -> 154x46
+2026/02/12 15:13:05 client disconnected (0 remaining)
+2026/02/12 15:13:05 client connected (1 total)
+2026/02/12 15:13:06 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 15:13:06 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 15:13:06 binary resize hq-mayor -> 154x46
+2026/02/12 15:13:06 binary resize hq-mayor -> 154x46
+2026/02/12 15:13:07 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 15:13:07 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 15:13:07 binary resize hq-deacon -> 154x46
+2026/02/12 15:13:07 binary resize hq-deacon -> 154x46
+2026/02/12 15:13:08 subscribe-output(gt-hello_gastown-crew-bob): starting pipe-pane
+2026/02/12 15:13:08 subscribe-output(gt-hello_gastown-crew-bob): pipe-pane active
+2026/02/12 15:13:08 binary resize gt-hello_gastown-crew-bob -> 154x46
+2026/02/12 15:13:08 binary resize gt-hello_gastown-crew-bob -> 154x46
+2026/02/12 15:13:08 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 15:13:08 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 15:13:08 binary resize hq-deacon -> 154x46
+2026/02/12 15:13:09 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 15:13:09 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 15:13:09 binary resize hq-mayor -> 154x46
+2026/02/12 15:13:18 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 15:13:18 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 15:13:18 binary resize hq-deacon -> 154x46
+2026/02/12 15:13:20 subscribe-output(gt-hello_gastown-crew-bob): starting pipe-pane
+2026/02/12 15:13:20 subscribe-output(gt-hello_gastown-crew-bob): pipe-pane active
+2026/02/12 15:13:20 binary resize gt-hello_gastown-crew-bob -> 154x46
+2026/02/12 15:16:08 unhandled tmux notification: %pane-mode-changed %144
+2026/02/12 15:16:08 unhandled tmux notification: %unlinked-window-renamed @61 [tmux]
+2026/02/12 15:16:09 unhandled tmux notification: %pane-mode-changed %144
+2026/02/12 15:16:09 unhandled tmux notification: %unlinked-window-renamed @61 2.1.39
+2026/02/12 15:16:26 client disconnected (0 remaining)
+2026/02/12 15:16:26 client connected (1 total)
+2026/02/12 15:16:27 subscribe-output(gt-hello_gastown-crew-bob): starting pipe-pane
+2026/02/12 15:16:27 subscribe-output(gt-hello_gastown-crew-bob): pipe-pane active
+2026/02/12 15:16:27 binary resize gt-hello_gastown-crew-bob -> 154x46
+2026/02/12 15:16:27 binary resize gt-hello_gastown-crew-bob -> 154x46
+2026/02/12 15:16:28 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 15:16:28 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 15:16:28 binary resize hq-deacon -> 154x46
+2026/02/12 15:16:28 binary resize hq-deacon -> 154x46
+2026/02/12 15:16:28 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 15:16:28 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 15:16:28 binary resize hq-mayor -> 154x46
+2026/02/12 15:16:28 binary resize hq-mayor -> 154x46
+2026/02/12 15:23:09 unhandled tmux notification: %pane-mode-changed %144
+2026/02/12 15:23:09 unhandled tmux notification: %unlinked-window-renamed @61 [tmux]
+2026/02/12 15:23:10 unhandled tmux notification: %pane-mode-changed %144
+2026/02/12 15:23:10 unhandled tmux notification: %unlinked-window-renamed @61 2.1.39
+2026/02/12 15:23:12 unhandled tmux notification: %pane-mode-changed %144
+2026/02/12 15:23:13 unhandled tmux notification: %unlinked-window-renamed @61 [tmux]
+2026/02/12 15:23:16 unhandled tmux notification: %pane-mode-changed %144
+2026/02/12 15:23:17 unhandled tmux notification: %unlinked-window-renamed @61 2.1.39

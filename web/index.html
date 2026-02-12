@@ -432,6 +432,7 @@ var msgId = 0;                // monotonic message id
 var ws = null;
 var textEncoder = new TextEncoder();
 var textDecoder = new TextDecoder();
+var pendingInitialPaint = new Set(); // agent names waiting for first snapshot paint
 
 var BinaryTerminalOutput = 0x01;
 var BinaryKeyboardInput = 0x02;
@@ -646,6 +647,7 @@ function showTerminal(agentName) {
   // Show or create the target terminal
   var entry = getOrCreateTerminal(agentName);
   entry.wrapper.classList.add('active');
+  entry.host.style.visibility = pendingInitialPaint.has(agentName) ? 'hidden' : '';
   placeholderEl.style.display = 'none';
 
   // Fit after layout settles, then focus for immediate typing
@@ -810,6 +812,9 @@ function connect() {
 
     // Re-subscribe to selected agent's output
     if (selectedAgent) {
+      pendingInitialPaint.add(selectedAgent);
+      var selectedEntry = terminals.get(selectedAgent);
+      if (selectedEntry) selectedEntry.host.style.visibility = 'hidden';
       send({ type: 'subscribe-output', agent: selectedAgent });
     }
   };
@@ -844,6 +849,22 @@ function handleBinaryMessage(buffer) {
     // Terminal output — write to the agent's terminal
     var entry = terminals.get(parsed.agentName);
     if (entry) {
+      var isInitialPaint = pendingInitialPaint.has(parsed.agentName);
+      if (isInitialPaint) {
+        entry.host.style.visibility = 'hidden';
+        entry.terminal.write(parsed.payload);
+        requestAnimationFrame(function() {
+          requestAnimationFrame(function() {
+            pendingInitialPaint.delete(parsed.agentName);
+            entry.host.style.visibility = '';
+            if (entry.wrapper.classList.contains('active')) {
+              fitTerminal(entry);
+            }
+          });
+        });
+        return;
+      }
+
       var savedY = getViewportY(entry.terminal);
       var atBottom = isAtBottom(entry.terminal, savedY);
       entry.terminal.write(parsed.payload);
@@ -978,6 +999,7 @@ function selectAgent(name) {
   }
 
   selectedAgent = name;
+  pendingInitialPaint.add(name);
   updateHeader();
   renderAgentList();
 

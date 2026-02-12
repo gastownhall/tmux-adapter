@@ -2,6 +2,8 @@
 
 A WebSocket service that exposes [gastown](https://github.com/steveyegge/gastown) agents as a programmatic interface. Clients interact with agents — tmux is an internal implementation detail.
 
+![screenshot](readme/screenshot.png)
+
 ## Quick Start
 
 ```bash

@@ -358,13 +358,18 @@ func handleSubscribeOutput(c *Client, req Request) {
 			OK:   &okVal,
 		})
 
-		// Prime the client with the current pane snapshot immediately.
+		// Prime the client with the full pane history immediately.
 		// Without this, quiet sessions (e.g., paused agents) can appear blank
 		// until new output is emitted through pipe-pane.
 		if snap, err := c.server.ctrl.CapturePaneAll(req.Agent); err != nil {
 			log.Printf("subscribe-output(%s): capture snapshot error: %v", req.Agent, err)
-		} else if snap != "" {
-			c.SendBinary(makeBinaryFrame(BinaryTerminalOutput, req.Agent, []byte(snap)))
+		} else {
+			// Clear old terminal contents before applying a fresh snapshot.
+			payload := []byte("\x1b[2J\x1b[H")
+			if snap != "" {
+				payload = append(payload, []byte(snap)...)
+			}
+			c.SendBinary(makeBinaryFrame(BinaryTerminalOutput, req.Agent, payload))
 		}
 
 		// Stream raw bytes in background
@@ -372,15 +377,6 @@ func handleSubscribeOutput(c *Client, req Request) {
 			for rawBytes := range ch {
 				c.SendBinary(makeBinaryFrame(BinaryTerminalOutput, req.Agent, rawBytes))
 			}
-		}()
-
-		// Belt-and-suspenders: force a redraw via resize dance after pipe-pane
-		// settles, in case the client's resize didn't trigger one (e.g., cached
-		// terminal already at the right size).
-		go func() {
-			time.Sleep(200 * time.Millisecond)
-			log.Printf("subscribe-output(%s): triggering ForceRedraw", req.Agent)
-			c.server.ctrl.ForceRedraw(req.Agent)
 		}()
 	} else {
 		// Non-streaming: return full capture in JSON

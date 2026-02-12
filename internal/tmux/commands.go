@@ -199,6 +199,16 @@ func (cm *ControlMode) CapturePaneAll(session string) (string, error) {
 	return cm.Execute(fmt.Sprintf("capture-pane -p -e -t '%s' -S -", session))
 }
 
+// CapturePaneVisible captures only the currently visible terminal screen.
+// The -a flag prefers the alternate screen buffer when present (full-screen TUIs).
+func (cm *ControlMode) CapturePaneVisible(session string) (string, error) {
+	out, err := cm.Execute(fmt.Sprintf("capture-pane -p -e -a -t '%s'", session))
+	if err != nil && strings.Contains(err.Error(), "no alternate screen") {
+		return cm.Execute(fmt.Sprintf("capture-pane -p -e -t '%s'", session))
+	}
+	return out, err
+}
+
 // CapturePaneHistory captures only the scrollback history (above the visible area).
 // Returns empty string if there is no scrollback.
 func (cm *ControlMode) CapturePaneHistory(session string) (string, error) {
