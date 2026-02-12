@@ -189,10 +189,18 @@
     height: 100%;
     display: none;
     position: relative;
+    overflow: hidden;
   }
 
   .terminal-wrapper.active {
     display: block;
+  }
+
+  .terminal-host {
+    width: 100%;
+    height: 100%;
+    transform-origin: top left;
+    will-change: transform;
   }
 
   .terminal-wrapper.drag-over::after {
@@ -421,6 +429,7 @@ var BinaryResize = 0x03;
 var BinaryFileUpload = 0x04;
 
 var MaxUploadBytes = 8 * 1024 * 1024;
+var MinTerminalCols = 80;
 
 // --- DOM refs ---
 var agentListEl  = document.getElementById('agent-list');
@@ -501,14 +510,24 @@ function bindMobileLayoutEvents() {
 }
 
 // --- Terminal fit ---
+function getTerminalScreen(el) {
+  if (!el) return null;
+  return el.querySelector('.xterm-screen') || el.querySelector('canvas');
+}
+
 function fitTerminal(entry) {
   var term = entry.terminal;
   var container = entry.wrapper;
+  var host = entry.host || entry.wrapper;
 
   if (!container.clientWidth || !container.clientHeight) return;
 
+  // Reset any width scaling before measuring available columns.
+  host.style.width = '100%';
+  host.style.transform = 'none';
+
   // Measure cell dimensions from the rendered terminal screen
-  var screen = container.querySelector('.xterm-screen') || container.querySelector('canvas');
+  var screen = getTerminalScreen(host);
   if (!screen || !screen.offsetWidth || !screen.offsetHeight) return;
 
   var cellWidth = screen.offsetWidth / term.cols;
@@ -516,11 +535,23 @@ function fitTerminal(entry) {
 
   if (cellWidth <= 0 || cellHeight <= 0) return;
 
-  var newCols = Math.max(2, Math.floor(container.clientWidth / cellWidth));
+  var naturalCols = Math.max(2, Math.floor(container.clientWidth / cellWidth));
+  var newCols = naturalCols < MinTerminalCols ? MinTerminalCols : naturalCols;
   var newRows = Math.max(1, Math.floor(container.clientHeight / cellHeight));
 
   if (newCols !== term.cols || newRows !== term.rows) {
     term.resize(newCols, newRows);
+  }
+
+  // Keep minimum readable layout width (80 cols) by scaling width only.
+  // This prevents downstream TUIs from breaking below their expected width.
+  if (naturalCols < MinTerminalCols) {
+    var requiredWidth = MinTerminalCols * cellWidth;
+    if (requiredWidth > 0) {
+      var scaleX = Math.min(1, container.clientWidth / requiredWidth);
+      host.style.width = requiredWidth + 'px';
+      host.style.transform = 'scaleX(' + scaleX + ')';
+    }
   }
 }
 
@@ -547,8 +578,11 @@ function getOrCreateTerminal(agentName) {
   });
   var wrapper = document.createElement('div');
   wrapper.className = 'terminal-wrapper';
+  var host = document.createElement('div');
+  host.className = 'terminal-host';
+  wrapper.appendChild(host);
   outputWrapEl.appendChild(wrapper);
-  terminal.open(wrapper);
+  terminal.open(host);
 
   // Hide the native cursor until the app positions it via escape sequences.
   // This prevents a phantom cursor at (0,0) before the app takes control.
@@ -588,7 +622,7 @@ function getOrCreateTerminal(agentName) {
 
   resizeObserver.observe(wrapper);
 
-  var entry = { terminal: terminal, wrapper: wrapper };
+  var entry = { terminal: terminal, wrapper: wrapper, host: host };
   terminals.set(agentName, entry);
   return entry;
 }
