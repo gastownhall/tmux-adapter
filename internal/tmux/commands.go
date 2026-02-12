@@ -149,10 +149,16 @@ func (cm *ControlMode) PasteBytes(target string, data []byte) error {
 	if err != nil {
 		return fmt.Errorf("create temp buffer file: %w", err)
 	}
-	defer os.Remove(f.Name())
+	defer func() {
+		if rmErr := os.Remove(f.Name()); rmErr != nil {
+			log.Printf("PasteBytes(%s): cleanup temp file %s: %v", target, f.Name(), rmErr)
+		}
+	}()
 
 	if _, err := f.Write(data); err != nil {
-		f.Close()
+		if closeErr := f.Close(); closeErr != nil {
+			log.Printf("PasteBytes(%s): close temp file after write error: %v", target, closeErr)
+		}
 		return fmt.Errorf("write temp buffer file: %w", err)
 	}
 	if err := f.Close(); err != nil {

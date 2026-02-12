@@ -1,0 +1,196 @@
+2026/02/12 14:54:45 connected to tmux control mode
+2026/02/12 14:54:45 agent registry started (3 agents found)
+2026/02/12 14:54:45 Dashboard at http://localhost:8080/
+2026/02/12 14:54:45 WebSocket server listening on ws://localhost:8080/ws
+2026/02/12 14:54:45 watching gastown at /Users/csells/gt
+2026/02/12 14:56:05 connected to tmux control mode
+2026/02/12 14:56:05 agent registry started (3 agents found)
+2026/02/12 14:56:05 Dashboard at http://localhost:8080/
+2026/02/12 14:56:05 WebSocket server listening on ws://localhost:8080/ws
+2026/02/12 14:56:05 watching gastown at /Users/csells/gt
+2026/02/12 14:56:46 client connected (1 total)
+2026/02/12 14:57:40 tmux monitor session create (adapter-monitor): exit status 1
+2026/02/12 14:57:40 connected to tmux control mode
+2026/02/12 14:57:41 agent registry started (3 agents found)
+2026/02/12 14:57:41 Dashboard at http://localhost:8080/
+2026/02/12 14:57:41 WebSocket server listening on ws://localhost:8080/ws
+2026/02/12 14:57:41 watching gastown at /Users/csells/gt
+2026/02/12 14:57:42 client connected (1 total)
+2026/02/12 14:58:34 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 14:58:34 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 14:58:34 binary resize hq-mayor -> 154x46
+2026/02/12 14:58:34 binary resize hq-mayor -> 154x46
+2026/02/12 14:58:34 subscribe-output(hq-mayor): triggering ForceRedraw
+2026/02/12 14:58:34 ForceRedraw(hq-mayor): starting
+2026/02/12 14:58:34 ForceRedraw(hq-mayor): window size = 154:46
+2026/02/12 14:58:34 ForceRedraw(hq-mayor): window resize dance complete
+2026/02/12 14:58:36 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 14:58:36 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 14:58:36 binary resize hq-deacon -> 154x46
+2026/02/12 14:58:36 binary resize hq-deacon -> 154x46
+2026/02/12 14:58:36 subscribe-output(hq-deacon): triggering ForceRedraw
+2026/02/12 14:58:36 ForceRedraw(hq-deacon): starting
+2026/02/12 14:58:36 ForceRedraw(hq-deacon): window size = 154:46
+2026/02/12 14:58:36 ForceRedraw(hq-deacon): window resize dance complete
+2026/02/12 14:58:37 subscribe-output(gt-hello_gastown-crew-bob): starting pipe-pane
+2026/02/12 14:58:37 subscribe-output(gt-hello_gastown-crew-bob): pipe-pane active
+2026/02/12 14:58:37 binary resize gt-hello_gastown-crew-bob -> 154x46
+2026/02/12 14:58:37 binary resize gt-hello_gastown-crew-bob -> 154x46
+2026/02/12 14:58:37 subscribe-output(gt-hello_gastown-crew-bob): triggering ForceRedraw
+2026/02/12 14:58:37 ForceRedraw(gt-hello_gastown-crew-bob): starting
+2026/02/12 14:58:37 ForceRedraw(gt-hello_gastown-crew-bob): window size = 154:46
+2026/02/12 14:58:37 ForceRedraw(gt-hello_gastown-crew-bob): window resize dance complete
+2026/02/12 14:58:38 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 14:58:38 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 14:58:38 binary resize hq-mayor -> 154x46
+2026/02/12 14:58:38 subscribe-output(hq-mayor): triggering ForceRedraw
+2026/02/12 14:58:38 ForceRedraw(hq-mayor): starting
+2026/02/12 14:58:38 ForceRedraw(hq-mayor): window size = 154:46
+2026/02/12 14:58:38 ForceRedraw(hq-mayor): window resize dance complete
+2026/02/12 14:58:41 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 14:58:41 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 14:58:41 binary resize hq-deacon -> 154x46
+2026/02/12 14:58:41 subscribe-output(hq-deacon): triggering ForceRedraw
+2026/02/12 14:58:41 ForceRedraw(hq-deacon): starting
+2026/02/12 14:58:41 ForceRedraw(hq-deacon): window size = 154:46
+2026/02/12 14:58:41 ForceRedraw(hq-deacon): window resize dance complete
+2026/02/12 14:58:41 subscribe-output(gt-hello_gastown-crew-bob): starting pipe-pane
+2026/02/12 14:58:41 subscribe-output(gt-hello_gastown-crew-bob): pipe-pane active
+2026/02/12 14:58:41 binary resize gt-hello_gastown-crew-bob -> 154x46
+2026/02/12 14:58:42 subscribe-output(gt-hello_gastown-crew-bob): triggering ForceRedraw
+2026/02/12 14:58:42 ForceRedraw(gt-hello_gastown-crew-bob): starting
+2026/02/12 14:58:42 ForceRedraw(gt-hello_gastown-crew-bob): window size = 154:46
+2026/02/12 14:58:42 ForceRedraw(gt-hello_gastown-crew-bob): window resize dance complete
+2026/02/12 14:58:42 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 14:58:42 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 14:58:42 binary resize hq-deacon -> 154x46
+2026/02/12 14:58:42 subscribe-output(hq-deacon): triggering ForceRedraw
+2026/02/12 14:58:42 ForceRedraw(hq-deacon): starting
+2026/02/12 14:58:42 ForceRedraw(hq-deacon): window size = 154:46
+2026/02/12 14:58:42 ForceRedraw(hq-deacon): window resize dance complete
+2026/02/12 14:58:43 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 14:58:43 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 14:58:43 binary resize hq-mayor -> 154x46
+2026/02/12 14:58:43 subscribe-output(hq-mayor): triggering ForceRedraw
+2026/02/12 14:58:43 ForceRedraw(hq-mayor): starting
+2026/02/12 14:58:43 ForceRedraw(hq-mayor): window size = 154:46
+2026/02/12 14:58:43 ForceRedraw(hq-mayor): window resize dance complete
+2026/02/12 14:58:44 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 14:58:44 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 14:58:44 binary resize hq-deacon -> 154x46
+2026/02/12 14:58:44 subscribe-output(hq-deacon): triggering ForceRedraw
+2026/02/12 14:58:44 ForceRedraw(hq-deacon): starting
+2026/02/12 14:58:44 ForceRedraw(hq-deacon): window size = 154:46
+2026/02/12 14:58:45 ForceRedraw(hq-deacon): window resize dance complete
+2026/02/12 14:58:46 subscribe-output(gt-hello_gastown-crew-bob): starting pipe-pane
+2026/02/12 14:58:46 subscribe-output(gt-hello_gastown-crew-bob): pipe-pane active
+2026/02/12 14:58:46 binary resize gt-hello_gastown-crew-bob -> 154x46
+2026/02/12 14:58:46 subscribe-output(gt-hello_gastown-crew-bob): triggering ForceRedraw
+2026/02/12 14:58:46 ForceRedraw(gt-hello_gastown-crew-bob): starting
+2026/02/12 14:58:46 ForceRedraw(gt-hello_gastown-crew-bob): window size = 154:46
+2026/02/12 14:58:46 ForceRedraw(gt-hello_gastown-crew-bob): window resize dance complete
+2026/02/12 14:58:48 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 14:58:48 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 14:58:48 binary resize hq-deacon -> 154x46
+2026/02/12 14:58:48 subscribe-output(hq-deacon): triggering ForceRedraw
+2026/02/12 14:58:48 ForceRedraw(hq-deacon): starting
+2026/02/12 14:58:48 ForceRedraw(hq-deacon): window size = 154:46
+2026/02/12 14:58:48 ForceRedraw(hq-deacon): window resize dance complete
+2026/02/12 14:58:51 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 14:58:51 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 14:58:51 binary resize hq-mayor -> 154x46
+2026/02/12 14:58:51 subscribe-output(hq-mayor): triggering ForceRedraw
+2026/02/12 14:58:51 ForceRedraw(hq-mayor): starting
+2026/02/12 14:58:51 ForceRedraw(hq-mayor): window size = 154:46
+2026/02/12 14:58:51 ForceRedraw(hq-mayor): window resize dance complete
+2026/02/12 14:59:05 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 14:59:05 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 14:59:05 binary resize hq-deacon -> 154x46
+2026/02/12 14:59:05 subscribe-output(hq-deacon): triggering ForceRedraw
+2026/02/12 14:59:05 ForceRedraw(hq-deacon): starting
+2026/02/12 14:59:05 ForceRedraw(hq-deacon): window size = 154:46
+2026/02/12 14:59:05 ForceRedraw(hq-deacon): window resize dance complete
+2026/02/12 14:59:08 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 14:59:08 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 14:59:08 binary resize hq-mayor -> 154x46
+2026/02/12 14:59:08 subscribe-output(hq-mayor): triggering ForceRedraw
+2026/02/12 14:59:08 ForceRedraw(hq-mayor): starting
+2026/02/12 14:59:08 ForceRedraw(hq-mayor): window size = 154:46
+2026/02/12 14:59:08 ForceRedraw(hq-mayor): window resize dance complete
+2026/02/12 14:59:09 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 14:59:09 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 14:59:09 binary resize hq-deacon -> 154x46
+2026/02/12 14:59:09 subscribe-output(hq-deacon): triggering ForceRedraw
+2026/02/12 14:59:09 ForceRedraw(hq-deacon): starting
+2026/02/12 14:59:09 ForceRedraw(hq-deacon): window size = 154:46
+2026/02/12 14:59:09 ForceRedraw(hq-deacon): window resize dance complete
+2026/02/12 14:59:27 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 14:59:27 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 14:59:27 binary resize hq-mayor -> 154x46
+2026/02/12 14:59:27 subscribe-output(hq-mayor): triggering ForceRedraw
+2026/02/12 14:59:27 ForceRedraw(hq-mayor): starting
+2026/02/12 14:59:27 ForceRedraw(hq-mayor): window size = 154:46
+2026/02/12 14:59:27 ForceRedraw(hq-mayor): window resize dance complete
+2026/02/12 14:59:33 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 14:59:33 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 14:59:33 binary resize hq-deacon -> 154x46
+2026/02/12 14:59:33 subscribe-output(hq-deacon): triggering ForceRedraw
+2026/02/12 14:59:33 ForceRedraw(hq-deacon): starting
+2026/02/12 14:59:33 ForceRedraw(hq-deacon): window size = 154:46
+2026/02/12 14:59:34 ForceRedraw(hq-deacon): window resize dance complete
+2026/02/12 14:59:36 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 14:59:36 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 14:59:36 binary resize hq-mayor -> 154x46
+2026/02/12 14:59:36 subscribe-output(hq-mayor): triggering ForceRedraw
+2026/02/12 14:59:36 ForceRedraw(hq-mayor): starting
+2026/02/12 14:59:36 ForceRedraw(hq-mayor): window size = 154:46
+2026/02/12 14:59:36 ForceRedraw(hq-mayor): window resize dance complete
+2026/02/12 14:59:41 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 14:59:41 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 14:59:41 binary resize hq-deacon -> 154x46
+2026/02/12 14:59:41 subscribe-output(hq-deacon): triggering ForceRedraw
+2026/02/12 14:59:41 ForceRedraw(hq-deacon): starting
+2026/02/12 14:59:41 ForceRedraw(hq-deacon): window size = 154:46
+2026/02/12 14:59:41 ForceRedraw(hq-deacon): window resize dance complete
+2026/02/12 14:59:44 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 14:59:44 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 14:59:44 binary resize hq-mayor -> 154x46
+2026/02/12 14:59:44 subscribe-output(hq-mayor): triggering ForceRedraw
+2026/02/12 14:59:44 ForceRedraw(hq-mayor): starting
+2026/02/12 14:59:44 ForceRedraw(hq-mayor): window size = 154:46
+2026/02/12 14:59:44 ForceRedraw(hq-mayor): window resize dance complete
+2026/02/12 14:59:49 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 14:59:49 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 14:59:49 binary resize hq-deacon -> 154x46
+2026/02/12 14:59:49 subscribe-output(hq-deacon): triggering ForceRedraw
+2026/02/12 14:59:49 ForceRedraw(hq-deacon): starting
+2026/02/12 14:59:49 ForceRedraw(hq-deacon): window size = 154:46
+2026/02/12 14:59:49 ForceRedraw(hq-deacon): window resize dance complete
+2026/02/12 14:59:54 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 14:59:54 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 14:59:54 binary resize hq-mayor -> 154x46
+2026/02/12 14:59:54 subscribe-output(hq-mayor): triggering ForceRedraw
+2026/02/12 14:59:54 ForceRedraw(hq-mayor): starting
+2026/02/12 14:59:54 ForceRedraw(hq-mayor): window size = 154:46
+2026/02/12 14:59:54 ForceRedraw(hq-mayor): window resize dance complete
+2026/02/12 14:59:57 subscribe-output(gt-hello_gastown-crew-bob): starting pipe-pane
+2026/02/12 14:59:57 subscribe-output(gt-hello_gastown-crew-bob): pipe-pane active
+2026/02/12 14:59:57 binary resize gt-hello_gastown-crew-bob -> 154x46
+2026/02/12 14:59:58 subscribe-output(gt-hello_gastown-crew-bob): triggering ForceRedraw
+2026/02/12 14:59:58 ForceRedraw(gt-hello_gastown-crew-bob): starting
+2026/02/12 14:59:58 ForceRedraw(gt-hello_gastown-crew-bob): window size = 154:46
+2026/02/12 14:59:58 ForceRedraw(gt-hello_gastown-crew-bob): window resize dance complete
+2026/02/12 14:59:58 subscribe-output(hq-deacon): starting pipe-pane
+2026/02/12 14:59:58 subscribe-output(hq-deacon): pipe-pane active
+2026/02/12 14:59:58 binary resize hq-deacon -> 154x46
+2026/02/12 14:59:58 subscribe-output(hq-deacon): triggering ForceRedraw
+2026/02/12 14:59:58 ForceRedraw(hq-deacon): starting
+2026/02/12 14:59:58 ForceRedraw(hq-deacon): window size = 154:46
+2026/02/12 14:59:58 ForceRedraw(hq-deacon): window resize dance complete
+2026/02/12 15:00:01 subscribe-output(hq-mayor): starting pipe-pane
+2026/02/12 15:00:01 subscribe-output(hq-mayor): pipe-pane active
+2026/02/12 15:00:01 binary resize hq-mayor -> 154x46
+2026/02/12 15:00:01 subscribe-output(hq-mayor): triggering ForceRedraw
+2026/02/12 15:00:01 ForceRedraw(hq-mayor): starting
+2026/02/12 15:00:01 ForceRedraw(hq-mayor): window size = 154:46
+2026/02/12 15:00:01 ForceRedraw(hq-mayor): window resize dance complete

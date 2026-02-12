@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -15,20 +16,22 @@ import (
 // Adapter wires together tmux control mode, agent registry, pipe-pane streaming,
 // and the WebSocket server.
 type Adapter struct {
-	ctrl     *tmux.ControlMode
-	registry *agents.Registry
-	pipeMgr  *tmux.PipePaneManager
-	wsSrv    *ws.Server
-	httpSrv  *http.Server
-	gtDir    string
-	port     int
+	ctrl      *tmux.ControlMode
+	registry  *agents.Registry
+	pipeMgr   *tmux.PipePaneManager
+	wsSrv     *ws.Server
+	httpSrv   *http.Server
+	gtDir     string
+	port      int
+	authToken string
 }
 
 // New creates a new Adapter.
-func New(gtDir string, port int) *Adapter {
+func New(gtDir string, port int, authToken string) *Adapter {
 	return &Adapter{
-		gtDir: gtDir,
-		port:  port,
+		gtDir:     gtDir,
+		port:      port,
+		authToken: authToken,
 	}
 }
 
@@ -49,7 +52,7 @@ func (a *Adapter) Start() error {
 	a.pipeMgr = tmux.NewPipePaneManager(ctrl)
 
 	// 4. Create WebSocket server
-	a.wsSrv = ws.NewServer(a.registry, a.pipeMgr, ctrl)
+	a.wsSrv = ws.NewServer(a.registry, a.pipeMgr, ctrl, a.authToken)
 
 	// 5. Start registry watching
 	if err := a.registry.Start(); err != nil {
@@ -63,6 +66,8 @@ func (a *Adapter) Start() error {
 
 	// 7. Start HTTP server
 	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", a.handleHealth)
+	mux.HandleFunc("/readyz", a.handleReady)
 	mux.Handle("/ws", a.wsSrv)
 	mux.Handle("/", http.FileServer(http.Dir("web")))
 
@@ -90,7 +95,9 @@ func (a *Adapter) Stop() {
 	// 1. Shutdown HTTP server
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	a.httpSrv.Shutdown(ctx)
+	if err := a.httpSrv.Shutdown(ctx); err != nil {
+		log.Printf("http shutdown: %v", err)
+	}
 
 	// 2. Close all WebSocket connections
 	a.wsSrv.CloseAll()
@@ -113,5 +120,40 @@ func (a *Adapter) forwardEvents() {
 	for event := range a.registry.Events() {
 		msg := ws.MakeAgentEvent(event.Type, event.Agent)
 		a.wsSrv.BroadcastToAgentSubscribers(msg)
+	}
+}
+
+func (a *Adapter) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (a *Adapter) handleReady(w http.ResponseWriter, _ *http.Request) {
+	if a.ctrl == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"ok":    false,
+			"error": "tmux control mode not initialized",
+		})
+		return
+	}
+	if _, err := a.ctrl.ListSessions(); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"ok":    false,
+			"error": "tmux control mode unavailable: " + err.Error(),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload map[string]any) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if _, err := w.Write(body); err != nil {
+		log.Printf("write json response: %v", err)
 	}
 }

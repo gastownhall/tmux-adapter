@@ -2,8 +2,10 @@ package ws
 
 import (
 	"context"
+	"crypto/subtle"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 
 	"nhooyr.io/websocket"
@@ -14,28 +16,33 @@ import (
 
 // Server is the WebSocket server that manages client connections.
 type Server struct {
-	registry *agents.Registry
-	pipeMgr  *tmux.PipePaneManager
-	ctrl     *tmux.ControlMode
-	clients  map[*Client]struct{}
-	mu       sync.Mutex
+	registry  *agents.Registry
+	pipeMgr   *tmux.PipePaneManager
+	ctrl      *tmux.ControlMode
+	authToken string
+	clients   map[*Client]struct{}
+	mu        sync.Mutex
 }
 
 // NewServer creates a new WebSocket server.
-func NewServer(registry *agents.Registry, pipeMgr *tmux.PipePaneManager, ctrl *tmux.ControlMode) *Server {
+func NewServer(registry *agents.Registry, pipeMgr *tmux.PipePaneManager, ctrl *tmux.ControlMode, authToken string) *Server {
 	return &Server{
-		registry: registry,
-		pipeMgr:  pipeMgr,
-		ctrl:     ctrl,
-		clients:  make(map[*Client]struct{}),
+		registry:  registry,
+		pipeMgr:   pipeMgr,
+		ctrl:      ctrl,
+		authToken: strings.TrimSpace(authToken),
+		clients:   make(map[*Client]struct{}),
 	}
 }
 
 // ServeHTTP handles WebSocket upgrade requests at /ws.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true, // Allow connections from any origin for dev
-	})
+	if !isAuthorizedRequest(s.authToken, r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{})
 	if err != nil {
 		log.Printf("websocket accept: %v", err)
 		return
@@ -98,4 +105,30 @@ func (s *Server) CloseAll() {
 	for _, c := range clients {
 		s.RemoveClient(c)
 	}
+}
+
+func isAuthorizedRequest(expectedToken string, r *http.Request) bool {
+	token := strings.TrimSpace(expectedToken)
+	if token == "" {
+		return true
+	}
+
+	const bearerPrefix = "Bearer "
+	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+	if strings.HasPrefix(authHeader, bearerPrefix) {
+		bearerToken := strings.TrimSpace(strings.TrimPrefix(authHeader, bearerPrefix))
+		if tokensEqual(token, bearerToken) {
+			return true
+		}
+	}
+
+	queryToken := strings.TrimSpace(r.URL.Query().Get("token"))
+	return tokensEqual(token, queryToken)
+}
+
+func tokensEqual(expected, actual string) bool {
+	if expected == "" || actual == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(actual)) == 1
 }

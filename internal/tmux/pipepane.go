@@ -57,11 +57,15 @@ func (pm *PipePaneManager) Subscribe(session string) (<-chan []byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create pipe file: %w", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		return nil, fmt.Errorf("close pipe file: %w", err)
+	}
 
 	// Activate pipe-pane
 	if err := pm.ctrl.PipePaneStart(session, fmt.Sprintf("cat >> %s", filePath)); err != nil {
-		os.Remove(filePath)
+		if rmErr := os.Remove(filePath); rmErr != nil {
+			log.Printf("pipe-pane cleanup %s: %v", filePath, rmErr)
+		}
 		return nil, fmt.Errorf("activate pipe-pane: %w", err)
 	}
 
@@ -120,7 +124,9 @@ func (pm *PipePaneManager) StopAll() {
 
 func (pm *PipePaneManager) stopStream(stream *pipeStream) {
 	stream.cancel()
-	pm.ctrl.PipePaneStop(stream.session)
+	if err := pm.ctrl.PipePaneStop(stream.session); err != nil {
+		log.Printf("pipe-pane stop %s: %v", stream.session, err)
+	}
 
 	stream.mu.Lock()
 	for ch := range stream.subscribers {
@@ -129,7 +135,9 @@ func (pm *PipePaneManager) stopStream(stream *pipeStream) {
 	stream.subscribers = nil
 	stream.mu.Unlock()
 
-	os.Remove(stream.filePath)
+	if err := os.Remove(stream.filePath); err != nil {
+		log.Printf("pipe file cleanup %s: %v", stream.filePath, err)
+	}
 }
 
 // tailFile reads new bytes from the pipe file and fans out raw bytes to subscribers at ~30fps.
@@ -139,10 +147,17 @@ func (pm *PipePaneManager) tailFile(ctx context.Context, stream *pipeStream) {
 		log.Printf("open pipe file %s: %v", stream.filePath, err)
 		return
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			log.Printf("close pipe file %s: %v", stream.filePath, closeErr)
+		}
+	}()
 
 	// Seek to end — we only want new output
-	f.Seek(0, io.SeekEnd)
+	if _, err := f.Seek(0, io.SeekEnd); err != nil {
+		log.Printf("seek pipe file %s: %v", stream.filePath, err)
+		return
+	}
 
 	// Pending buffer accumulates raw bytes across multiple reads.
 	var pending []byte

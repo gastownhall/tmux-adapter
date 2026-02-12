@@ -20,7 +20,7 @@ type Client struct {
 	conn       *websocket.Conn
 	server     *Server
 	send       chan outMsg
-	agentSub   bool                    // subscribed to agent lifecycle
+	agentSub   bool                     // subscribed to agent lifecycle
 	outputSubs map[string]<-chan []byte // agent name -> raw byte channel
 	mu         sync.Mutex
 	ctx        context.Context
@@ -137,5 +137,7 @@ func (c *Client) Close() {
 	}
 
 	c.agentSub = false
-	c.conn.Close(websocket.StatusNormalClosure, "")
+	if err := c.conn.Close(websocket.StatusNormalClosure, ""); err != nil {
+		log.Printf("client close websocket: %v", err)
+	}
 }

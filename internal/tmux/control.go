@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // Notification represents a parsed tmux control mode event.
@@ -24,17 +25,20 @@ type commandResponse struct {
 	err    error
 }
 
+const defaultExecuteTimeout = 10 * time.Second
+
 // ControlMode manages a tmux control mode connection.
 // Commands are serialized — only one Execute() call runs at a time.
 type ControlMode struct {
-	cmd           *exec.Cmd
-	stdin         io.WriteCloser
-	notifications chan Notification
-	responseCh    chan commandResponse // single channel for current pending command
-	execMu        sync.Mutex          // serializes Execute() calls
-	done          chan struct{}
-	closing       atomic.Bool
-	session       string
+	cmd            *exec.Cmd
+	stdin          io.WriteCloser
+	notifications  chan Notification
+	responseCh     chan commandResponse // single channel for current pending command
+	execMu         sync.Mutex           // serializes Execute() calls
+	done           chan struct{}
+	closing        atomic.Bool
+	session        string
+	executeTimeout time.Duration
 }
 
 // NewControlMode creates and starts a tmux control mode connection.
@@ -44,13 +48,17 @@ func NewControlMode() (*ControlMode, error) {
 
 	// Create monitor session if it doesn't exist
 	create := exec.Command("tmux", "-u", "new-session", "-d", "-s", sessionName)
-	create.Run() // ignore error — session may already exist
+	if err := create.Run(); err != nil {
+		// Session may already exist; this is non-fatal.
+		log.Printf("tmux monitor session create (%s): %v", sessionName, err)
+	}
 
 	cm := &ControlMode{
-		notifications: make(chan Notification, 100),
-		responseCh:    make(chan commandResponse, 1),
-		done:          make(chan struct{}),
-		session:       sessionName,
+		notifications:  make(chan Notification, 100),
+		responseCh:     make(chan commandResponse, 1),
+		done:           make(chan struct{}),
+		session:        sessionName,
+		executeTimeout: defaultExecuteTimeout,
 	}
 
 	cm.cmd = exec.Command("tmux", "-u", "-C", "attach", "-t", sessionName)
@@ -97,8 +105,14 @@ func (cm *ControlMode) Execute(command string) (string, error) {
 	}
 
 	// Wait for response
-	resp := <-cm.responseCh
-	return resp.output, resp.err
+	select {
+	case resp := <-cm.responseCh:
+		return resp.output, resp.err
+	case <-time.After(cm.executeTimeout):
+		return "", fmt.Errorf("tmux command timed out after %s: %s", cm.executeTimeout, command)
+	case <-cm.done:
+		return "", fmt.Errorf("tmux control mode closed")
+	}
 }
 
 // Notifications returns the channel for receiving tmux events.
@@ -109,12 +123,18 @@ func (cm *ControlMode) Notifications() <-chan Notification {
 // Close shuts down the control mode connection and kills the monitor session.
 func (cm *ControlMode) Close() {
 	cm.closing.Store(true)
-	cm.stdin.Close()
-	cm.cmd.Wait()
+	if err := cm.stdin.Close(); err != nil {
+		log.Printf("tmux control stdin close: %v", err)
+	}
+	if err := cm.cmd.Wait(); err != nil {
+		log.Printf("tmux control wait: %v", err)
+	}
 	close(cm.done)
 
 	// Kill the monitor session
-	exec.Command("tmux", "-u", "kill-session", "-t", cm.session).Run()
+	if err := exec.Command("tmux", "-u", "kill-session", "-t", cm.session).Run(); err != nil {
+		log.Printf("tmux monitor session kill (%s): %v", cm.session, err)
+	}
 }
 
 // readLoop reads stdout from the tmux control mode process and dispatches

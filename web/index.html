@@ -795,7 +795,12 @@ function isAtBottom(term, y) {
 // --- WebSocket ---
 function connect() {
   var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(proto + '//' + location.host + '/ws');
+  var wsURL = new URL(proto + '//' + location.host + '/ws');
+  var token = new URLSearchParams(location.search).get('token');
+  if (token) {
+    wsURL.searchParams.set('token', token);
+  }
+  ws = new WebSocket(wsURL.toString());
   ws.binaryType = 'arraybuffer';
 
   ws.onopen = function() {

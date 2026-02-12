@@ -24,6 +24,10 @@ The adapter uses a mixed JSON + binary protocol over one WebSocket connection at
 
 Requests include an `id` for correlation; responses echo it back.
 
+Security notes:
+- Browser WebSocket upgrades enforce normal origin checks (no permissive bypass).
+- Optional auth token can be required via `--auth-token`; clients send `Authorization: Bearer <token>` or `?token=<token>`.
+
 ### Binary Frame Format
 
 ```
@@ -156,3 +160,17 @@ Clients ◄──ws──► tmux-adapter ◄──control mode──► tmux se
 |------|---------|-------------|
 | `--gt-dir` | `~/gt` | Gastown town directory |
 | `--port` | `8080` | WebSocket server port |
+| `--auth-token` | `` | Optional WebSocket auth token |
+
+## Health Endpoints
+
+- `GET /healthz` -> static process liveness (`{"ok":true}`)
+- `GET /readyz` -> tmux control mode readiness check (`200` on success, `503` with error on failure)
+
+## Development Checks
+
+```bash
+make check
+```
+
+Architecture standards and constraints are documented in `ARCHITECTURE.md`.

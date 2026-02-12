@@ -3,6 +3,7 @@ package ws
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -80,39 +81,38 @@ func handleMessage(c *Client, req Request) {
 // handleBinaryMessage routes binary WebSocket frames.
 // Format: msgType(1 byte) + agentName + \0 + payload
 func handleBinaryMessage(c *Client, data []byte) {
-	if len(data) < 3 {
+	msgType, agentName, payload, err := parseBinaryEnvelope(data)
+	if err != nil {
+		c.sendError("", "invalid binary message: "+err.Error())
 		return
 	}
-
-	msgType := data[0]
-	rest := data[1:]
-
-	// Split agent name and payload on null byte
-	idx := bytes.IndexByte(rest, 0)
-	if idx < 0 {
-		return
-	}
-	agentName := string(rest[:idx])
-	payload := rest[idx+1:]
 
 	switch msgType {
 	case BinaryKeyboardInput:
 		if err := sendKeyboardPayload(c, agentName, payload); err != nil {
 			log.Printf("keyboard input %s error: %v", agentName, err)
+			c.sendError("", "keyboard input "+agentName+": "+err.Error())
 		}
 	case BinaryResize:
 		parts := strings.SplitN(string(payload), ":", 2)
 		if len(parts) != 2 {
+			c.sendError("", "invalid resize payload for "+agentName+": expected cols:rows")
 			return
 		}
 		cols, err1 := strconv.Atoi(parts[0])
 		rows, err2 := strconv.Atoi(parts[1])
 		if err1 != nil || err2 != nil {
+			c.sendError("", "invalid resize payload for "+agentName+": non-numeric cols/rows")
+			return
+		}
+		if cols < 2 || rows < 1 {
+			c.sendError("", fmt.Sprintf("invalid resize payload for %s: %dx%d out of range", agentName, cols, rows))
 			return
 		}
 		log.Printf("binary resize %s -> %dx%d", agentName, cols, rows)
 		if err := c.server.ctrl.ResizePaneTo(agentName, cols, rows); err != nil {
 			log.Printf("resize %s error: %v", agentName, err)
+			c.sendError("", "resize "+agentName+": "+err.Error())
 		}
 	case BinaryFileUpload:
 		payloadCopy := append([]byte(nil), payload...)
@@ -128,7 +128,28 @@ func handleBinaryMessage(c *Client, data []byte) {
 		}()
 	default:
 		log.Printf("unknown binary message type: 0x%02x", msgType)
+		c.sendError("", fmt.Sprintf("unknown binary message type: 0x%02x", msgType))
 	}
+}
+
+func parseBinaryEnvelope(data []byte) (msgType byte, agentName string, payload []byte, err error) {
+	if len(data) < 3 {
+		return 0, "", nil, fmt.Errorf("frame too short")
+	}
+
+	msgType = data[0]
+	rest := data[1:]
+	idx := bytes.IndexByte(rest, 0)
+	if idx < 0 {
+		return 0, "", nil, fmt.Errorf("missing agent separator")
+	}
+	if idx == 0 {
+		return 0, "", nil, fmt.Errorf("missing agent name")
+	}
+
+	agentName = string(rest[:idx])
+	payload = rest[idx+1:]
+	return msgType, agentName, payload, nil
 }
 
 func sendKeyboardPayload(c *Client, agentName string, payload []byte) error {
@@ -253,7 +274,11 @@ func handleSendPrompt(c *Client, req Request) {
 		time.Sleep(500 * time.Millisecond)
 
 		// 3. Send Escape (for vim mode)
-		c.server.ctrl.SendKeysRaw(session, "Escape")
+		if err := c.server.ctrl.SendKeysRaw(session, "Escape"); err != nil {
+			ok := false
+			c.sendJSON(Response{ID: req.ID, Type: "send-prompt", OK: &ok, Error: "send Escape: " + err.Error()})
+			return
+		}
 		time.Sleep(100 * time.Millisecond)
 
 		// 4. Send Enter with 3x retry, 200ms backoff
@@ -269,9 +294,13 @@ func handleSendPrompt(c *Client, req Request) {
 
 			// 5. Wake detached sessions via SIGWINCH resize dance
 			if !agent.Attached {
-				c.server.ctrl.ResizePane(session, "-1")
+				if err := c.server.ctrl.ResizePane(session, "-1"); err != nil {
+					log.Printf("send-prompt(%s): wake shrink resize failed: %v", session, err)
+				}
 				time.Sleep(50 * time.Millisecond)
-				c.server.ctrl.ResizePane(session, "+1")
+				if err := c.server.ctrl.ResizePane(session, "+1"); err != nil {
+					log.Printf("send-prompt(%s): wake restore resize failed: %v", session, err)
+				}
 			}
 
 			ok := true
