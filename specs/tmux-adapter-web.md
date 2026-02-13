@@ -9,7 +9,7 @@ with zero framework dependencies.
 
 ## 1. Overview & Motivation
 
-`web/index.html` is currently a single 1,100-line file that mixes two concerns:
+`samples/index.html` (the Gastown Dashboard sample app) mixes two concerns:
 
 1. **Gastown Dashboard app** — agent list sidebar, mobile drawer, WebSocket
    connection management, agent lifecycle UI, connection status indicator.
@@ -70,13 +70,14 @@ tmux-adapter/
 │   └── ws/
 ├── go.mod
 ├── web/
-│   ├── index.html            # Gastown Dashboard (consumer)
 │   └── tmux-adapter-web/     # Reusable terminal web component
 │       ├── tmux-adapter-web.js  # Custom element definition (main entry)
 │       ├── protocol.js       # Binary frame encode/decode (standalone export)
 │       ├── fit.js            # Custom fit logic (min-cols + scaleX)
 │       ├── file-transfer.js  # Drag-drop + paste upload wiring
 │       └── index.js          # Barrel: auto-registers element, re-exports protocol
+├── samples/
+│   └── index.html            # Gastown Dashboard sample app (not served by Go binary)
 ├── specs/
 ├── Makefile
 └── README.md

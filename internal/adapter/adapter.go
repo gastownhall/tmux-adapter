@@ -16,22 +16,24 @@ import (
 // Adapter wires together tmux control mode, agent registry, pipe-pane streaming,
 // and the WebSocket server.
 type Adapter struct {
-	ctrl      *tmux.ControlMode
-	registry  *agents.Registry
-	pipeMgr   *tmux.PipePaneManager
-	wsSrv     *ws.Server
-	httpSrv   *http.Server
-	gtDir     string
-	port      int
-	authToken string
+	ctrl           *tmux.ControlMode
+	registry       *agents.Registry
+	pipeMgr        *tmux.PipePaneManager
+	wsSrv          *ws.Server
+	httpSrv        *http.Server
+	gtDir          string
+	port           int
+	authToken      string
+	originPatterns []string
 }
 
 // New creates a new Adapter.
-func New(gtDir string, port int, authToken string) *Adapter {
+func New(gtDir string, port int, authToken string, originPatterns []string) *Adapter {
 	return &Adapter{
-		gtDir:     gtDir,
-		port:      port,
-		authToken: authToken,
+		gtDir:          gtDir,
+		port:           port,
+		authToken:      authToken,
+		originPatterns: originPatterns,
 	}
 }
 
@@ -52,7 +54,7 @@ func (a *Adapter) Start() error {
 	a.pipeMgr = tmux.NewPipePaneManager(ctrl)
 
 	// 4. Create WebSocket server
-	a.wsSrv = ws.NewServer(a.registry, a.pipeMgr, ctrl, a.authToken)
+	a.wsSrv = ws.NewServer(a.registry, a.pipeMgr, ctrl, a.authToken, a.originPatterns)
 
 	// 5. Start registry watching
 	if err := a.registry.Start(); err != nil {
@@ -69,7 +71,6 @@ func (a *Adapter) Start() error {
 	mux.HandleFunc("/healthz", a.handleHealth)
 	mux.HandleFunc("/readyz", a.handleReady)
 	mux.Handle("/ws", a.wsSrv)
-	mux.Handle("/", http.FileServer(http.Dir("web")))
 
 	a.httpSrv = &http.Server{
 		Addr:    fmt.Sprintf(":%d", a.port),
@@ -77,7 +78,6 @@ func (a *Adapter) Start() error {
 	}
 
 	go func() {
-		log.Printf("Dashboard at http://localhost:%d/", a.port)
 		log.Printf("WebSocket server listening on ws://localhost:%d/ws", a.port)
 		log.Printf("watching gastown at %s", a.gtDir)
 		if err := a.httpSrv.ListenAndServe(); err != http.ErrServerClosed {

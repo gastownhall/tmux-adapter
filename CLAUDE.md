@@ -57,7 +57,9 @@ main.go → adapter.New() → wires everything together
                 │
                 ├── internal/ws/file_upload.go  Binary 0x04 handling: save file, paste path/contents into tmux
                 │
-                └── web/index.html              Gastown Dashboard: agent list + ghostty-web terminal viewer
+                ├── web/tmux-adapter-web/       Reusable terminal web component (consumed via file path)
+                │
+                └── samples/index.html          Gastown Dashboard sample app (not served by Go binary)
 ```
 
 ### Key data flows

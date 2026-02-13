@@ -18,6 +18,15 @@ Connect with any WebSocket client:
 websocat ws://localhost:8080/ws
 ```
 
+### Sample Dashboard
+
+The Gastown Dashboard lives in `samples/index.html` — a consumer of the WebSocket API, not part of the server. To run it, serve the repo root with any static file server:
+
+```bash
+python3 -m http.server
+open http://localhost:8000/samples/index.html
+```
+
 ## API
 
 The adapter uses a mixed JSON + binary protocol over one WebSocket connection at `/ws`:

@@ -76,10 +76,11 @@ func TestBuildServerPastePath(t *testing.T) {
 }
 
 func TestBuildPastePayload(t *testing.T) {
+	savedPath := "/srv/agent/.tmux-adapter/uploads/data.bin"
 	pastePath := "./.tmux-adapter/uploads/data.bin"
 
 	smallText := []byte("hello\nworld")
-	gotText := buildPastePayload(pastePath, "text/plain", smallText)
+	gotText := buildPastePayload(savedPath, pastePath, "text/plain", smallText)
 	if string(gotText) != string(smallText) {
 		t.Fatalf("small text payload should be pasted inline")
 	}
@@ -88,15 +89,21 @@ func TestBuildPastePayload(t *testing.T) {
 	for i := range largeText {
 		largeText[i] = 'a'
 	}
-	gotLarge := buildPastePayload(pastePath, "text/plain", largeText)
+	gotLarge := buildPastePayload(savedPath, pastePath, "text/plain", largeText)
 	if string(gotLarge) != pastePath {
 		t.Fatalf("large text payload = %q, want %q", string(gotLarge), pastePath)
 	}
 
 	binaryData := []byte{0x00, 0x01, 0x02}
-	gotBinary := buildPastePayload(pastePath, "application/octet-stream", binaryData)
+	gotBinary := buildPastePayload(savedPath, pastePath, "application/octet-stream", binaryData)
 	if string(gotBinary) != pastePath {
 		t.Fatalf("binary payload = %q, want %q", string(gotBinary), pastePath)
+	}
+
+	imgData := []byte{0x89, 0x50, 0x4E, 0x47} // PNG header bytes
+	gotImg := buildPastePayload(savedPath, pastePath, "image/png", imgData)
+	if string(gotImg) != savedPath {
+		t.Fatalf("image payload = %q, want absolute path %q", string(gotImg), savedPath)
 	}
 }
 

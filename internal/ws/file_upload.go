@@ -44,7 +44,7 @@ func handleBinaryFileUpload(c *Client, agentName string, payload []byte) error {
 		pasteBaseDir = paneInfo.WorkDir
 	}
 	pastePath := buildServerPastePath(pasteBaseDir, savedPath)
-	pastePayload := buildPastePayload(pastePath, mimeType, fileBytes)
+	pastePayload := buildPastePayload(savedPath, pastePath, mimeType, fileBytes)
 
 	if err := copyToLocalClipboard(pastePayload); err != nil {
 		log.Printf("clipboard copy %s: %v", agentName, err)
@@ -78,9 +78,13 @@ func parseFileUploadPayload(payload []byte) (fileName string, mimeType string, d
 	return fileName, mimeType, data, nil
 }
 
-func buildPastePayload(pastePath, mimeType string, fileBytes []byte) []byte {
+func buildPastePayload(savedPath, pastePath, mimeType string, fileBytes []byte) []byte {
 	if len(fileBytes) <= maxInlinePasteBytes && isTextLike(mimeType, fileBytes) {
 		return fileBytes
+	}
+	// Images need the absolute path so Claude Code can read and render them inline.
+	if strings.HasPrefix(mimeType, "image/") {
+		return []byte(savedPath)
 	}
 	return []byte(pastePath)
 }

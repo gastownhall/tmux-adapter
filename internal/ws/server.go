@@ -16,22 +16,24 @@ import (
 
 // Server is the WebSocket server that manages client connections.
 type Server struct {
-	registry  *agents.Registry
-	pipeMgr   *tmux.PipePaneManager
-	ctrl      *tmux.ControlMode
-	authToken string
-	clients   map[*Client]struct{}
-	mu        sync.Mutex
+	registry       *agents.Registry
+	pipeMgr        *tmux.PipePaneManager
+	ctrl           *tmux.ControlMode
+	authToken      string
+	originPatterns []string
+	clients        map[*Client]struct{}
+	mu             sync.Mutex
 }
 
 // NewServer creates a new WebSocket server.
-func NewServer(registry *agents.Registry, pipeMgr *tmux.PipePaneManager, ctrl *tmux.ControlMode, authToken string) *Server {
+func NewServer(registry *agents.Registry, pipeMgr *tmux.PipePaneManager, ctrl *tmux.ControlMode, authToken string, originPatterns []string) *Server {
 	return &Server{
-		registry:  registry,
-		pipeMgr:   pipeMgr,
-		ctrl:      ctrl,
-		authToken: strings.TrimSpace(authToken),
-		clients:   make(map[*Client]struct{}),
+		registry:       registry,
+		pipeMgr:        pipeMgr,
+		ctrl:           ctrl,
+		authToken:      strings.TrimSpace(authToken),
+		originPatterns: originPatterns,
+		clients:        make(map[*Client]struct{}),
 	}
 }
 
@@ -42,7 +44,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{})
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		OriginPatterns: s.originPatterns,
+	})
 	if err != nil {
 		log.Printf("websocket accept: %v", err)
 		return
