@@ -466,6 +466,7 @@ var pendingInitialPaint = new Set(); // agent names waiting for first snapshot p
 var pendingResizePaint = new Set();  // agent names waiting for post-resize repaint
 var resizeSendTimers = new Map();    // agent -> debounce timer id
 var resizeRevealTimers = new Map();  // agent -> safety reveal timer id
+var initialPaintTimers = new Map();  // agent -> safety timeout for initial paint
 var agentsLoading = true;
 var agentsLoadTimedOut = false;
 var agentsLoadTimer = null;
@@ -481,6 +482,7 @@ var MinTerminalCols = 80;
 var ResizeSendDebounceMs = 90;
 var ResizeRevealTimeoutMs = 260;
 var AgentsLoadTimeoutMs = 7000;
+var InitialPaintTimeoutMs = 3000;
 
 // --- DOM refs ---
 var agentListEl  = document.getElementById('agent-list');
@@ -542,6 +544,34 @@ function clearResizeRevealTimer(agentName) {
     clearTimeout(timer);
     resizeRevealTimers.delete(agentName);
   }
+}
+
+function clearInitialPaintTimer(agentName) {
+  var timer = initialPaintTimers.get(agentName);
+  if (timer) {
+    clearTimeout(timer);
+    initialPaintTimers.delete(agentName);
+  }
+}
+
+function startInitialPaint(agentName) {
+  pendingInitialPaint.add(agentName);
+  clearInitialPaintTimer(agentName);
+  initialPaintTimers.set(agentName, setTimeout(function() {
+    initialPaintTimers.delete(agentName);
+    if (!pendingInitialPaint.has(agentName)) return;
+    pendingInitialPaint.delete(agentName);
+    setTerminalHostVisibility(agentName, true);
+    var entry = terminals.get(agentName);
+    if (entry && entry.wrapper.classList.contains('active')) {
+      fitTerminal(entry);
+    }
+  }, InitialPaintTimeoutMs));
+}
+
+function finishInitialPaint(agentName) {
+  pendingInitialPaint.delete(agentName);
+  clearInitialPaintTimer(agentName);
 }
 
 function finishResizePending(agentName) {
@@ -757,11 +787,16 @@ function getOrCreateTerminal(agentName) {
     sendBinary(BinaryKeyboardInput, agentName, payload);
   });
 
-  // Terminal resize -> server via binary
+  // Terminal resize -> server via binary.
+  // During initial paint, suppress resize sends — the initial resize was
+  // already sent by subscribeOutputWithSizedSnapshot. Sending more resizes
+  // during the transition causes a cascade of SIGWINCH events that corrupts
+  // the app's display state.
   terminal.onResize(function(size) {
-    if (!pendingInitialPaint.has(agentName)) {
-      markResizePending(agentName);
+    if (pendingInitialPaint.has(agentName)) {
+      return;
     }
+    markResizePending(agentName);
     scheduleResizeSend(agentName, size.cols, size.rows);
   });
 
@@ -952,7 +987,7 @@ function connect() {
     // Re-subscribe to selected agent's output
     if (selectedAgent) {
       finishResizePending(selectedAgent);
-      pendingInitialPaint.add(selectedAgent);
+      startInitialPaint(selectedAgent);
       var selectedEntry = terminals.get(selectedAgent);
       if (selectedEntry) selectedEntry.host.style.visibility = 'hidden';
       showTerminal(selectedAgent);
@@ -986,13 +1021,23 @@ function send(obj) {
 }
 
 // --- Binary message handling ---
+var binaryFrameCount = 0;
+
 function handleBinaryMessage(buffer) {
   var parsed = parseBinaryMessage(buffer);
 
   var entry = terminals.get(parsed.agentName);
   if (!entry) return;
 
+  var frameNum = ++binaryFrameCount;
+  var isInitial = pendingInitialPaint.has(parsed.agentName);
+  var isResize = pendingResizePaint.has(parsed.agentName);
+
   if (parsed.msgType === BinaryTerminalSnapshot) {
+    console.log('[frame ' + frameNum + '] 0x05 SNAPSHOT ' + parsed.agentName +
+      ' payload=' + parsed.payload.length + 'B' +
+      ' pendingInitial=' + isInitial + ' pendingResize=' + isResize +
+      ' cols=' + entry.terminal.cols + ' rows=' + entry.terminal.rows);
     setTerminalHostVisibility(parsed.agentName, false);
     if (typeof entry.terminal.reset === 'function') {
       entry.terminal.reset();
@@ -1004,7 +1049,8 @@ function handleBinaryMessage(buffer) {
 
     requestAnimationFrame(function() {
       requestAnimationFrame(function() {
-        pendingInitialPaint.delete(parsed.agentName);
+        console.log('[frame ' + frameNum + '] 0x05 reveal rAF for ' + parsed.agentName);
+        finishInitialPaint(parsed.agentName);
         finishResizePending(parsed.agentName);
         setTerminalHostVisibility(parsed.agentName, true);
         if (entry.wrapper.classList.contains('active')) {
@@ -1019,12 +1065,19 @@ function handleBinaryMessage(buffer) {
     return;
   }
 
-  // Terminal output — append incremental stream bytes.
-  if (pendingInitialPaint.has(parsed.agentName) || pendingResizePaint.has(parsed.agentName)) {
+  if (isInitial) {
+    console.log('[frame ' + frameNum + '] 0x01 STREAM ' + parsed.agentName +
+      ' payload=' + parsed.payload.length + 'B → WRITE (hidden, pendingInitial)');
+    entry.terminal.write(parsed.payload);
+    return;
+  }
+
+  if (isResize) {
+    console.log('[frame ' + frameNum + '] 0x01 STREAM ' + parsed.agentName +
+      ' payload=' + parsed.payload.length + 'B → WRITE+REVEAL (pendingResize)');
     entry.terminal.write(parsed.payload);
     requestAnimationFrame(function() {
       requestAnimationFrame(function() {
-        pendingInitialPaint.delete(parsed.agentName);
         finishResizePending(parsed.agentName);
         setTerminalHostVisibility(parsed.agentName, true);
         if (entry.wrapper.classList.contains('active')) {
@@ -1033,6 +1086,11 @@ function handleBinaryMessage(buffer) {
       });
     });
     return;
+  }
+
+  if (binaryFrameCount <= 50) {
+    console.log('[frame ' + frameNum + '] 0x01 STREAM ' + parsed.agentName +
+      ' payload=' + parsed.payload.length + 'B → normal write');
   }
 
   var savedY = getViewportY(entry.terminal);
@@ -1065,7 +1123,7 @@ function handleJsonMessage(msg) {
     case 'agent-removed':
       var removedName = msg.name || (msg.agent && msg.agent.name);
       if (removedName) {
-        pendingInitialPaint.delete(removedName);
+        finishInitialPaint(removedName);
         finishResizePending(removedName);
         clearResizeRevealTimer(removedName);
         var resizeSendTimer = resizeSendTimers.get(removedName);
@@ -1177,8 +1235,10 @@ function selectAgent(name) {
   }
 
   selectedAgent = name;
+  binaryFrameCount = 0;
+  console.log('=== selectAgent(' + name + ') ===');
   finishResizePending(name);
-  pendingInitialPaint.add(name);
+  startInitialPaint(name);
   updateHeader();
   renderAgentList();
 
@@ -1186,7 +1246,13 @@ function selectAgent(name) {
   // subscribe-output is sent after we push current size to avoid bad initial wraps.
   showTerminal(name);
 
+  var entry = terminals.get(name);
+  if (entry) {
+    console.log('  terminal size: ' + entry.terminal.cols + 'x' + entry.terminal.rows);
+  }
+
   // Push size first, then request snapshot+stream at that geometry.
+  console.log('  calling subscribeOutputWithSizedSnapshot');
   subscribeOutputWithSizedSnapshot(name);
 
   if (isMobileLayout()) {

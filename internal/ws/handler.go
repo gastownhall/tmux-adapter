@@ -124,7 +124,7 @@ func handleBinaryMessage(c *Client, data []byte) {
 				if snap != "" {
 					refreshPayload = append(refreshPayload, []byte(snap)...)
 				}
-				c.SendBinary(makeBinaryFrame(BinaryTerminalSnapshot, agentName, refreshPayload))
+				c.SendBinary(makeBinaryFrame(BinaryTerminalOutput, agentName, refreshPayload))
 			}
 		}
 	case BinaryFileUpload:
@@ -354,7 +354,7 @@ func handleSubscribeOutput(c *Client, req Request) {
 	wantStream := req.Stream == nil || *req.Stream
 
 	if wantStream {
-		// Subscribe to pipe-pane raw bytes
+		// Subscribe to pipe-pane first so it's ready for ongoing streaming.
 		log.Printf("subscribe-output(%s): starting pipe-pane", req.Agent)
 		ch, err := c.server.pipeMgr.Subscribe(req.Agent)
 		if err != nil {
@@ -369,8 +369,6 @@ func handleSubscribeOutput(c *Client, req Request) {
 		c.outputSubs[req.Agent] = ch
 		c.mu.Unlock()
 
-		// Send JSON success response — client will show terminal and trigger
-		// a resize, which forces the app to redraw through pipe-pane
 		okVal := true
 		c.sendJSON(Response{
 			ID:   req.ID,
@@ -378,28 +376,47 @@ func handleSubscribeOutput(c *Client, req Request) {
 			OK:   &okVal,
 		})
 
-		// Prime the client with full rich history and then repaint the visible screen.
-		// History preserves ANSI styling; visible repaint lands on the current frame.
-		// Without this, quiet sessions (e.g., paused agents) can appear blank
-		// until new output is emitted through pipe-pane.
-		fullHistory, err := c.server.ctrl.CapturePaneAll(req.Agent)
-		if err != nil {
-			log.Printf("subscribe-output(%s): capture full history error: %v", req.Agent, err)
-		} else {
-			refreshPayload := make([]byte, 0, len(fullHistory)+1024)
-			if fullHistory != "" {
-				refreshPayload = append(refreshPayload, []byte(fullHistory)...)
-			}
+		// Force a clean redraw BEFORE capturing. The preceding client resize
+		// triggered SIGWINCH, but the app may not have finished redrawing (or
+		// the resize happened before pipe-pane was active). The resize dance
+		// guarantees the app has repainted at the correct geometry.
+		log.Printf("subscribe-output(%s): forcing redraw before capture", req.Agent)
+		c.server.ctrl.ForceRedraw(req.Agent)
+		time.Sleep(100 * time.Millisecond)
 
-			refreshPayload = append(refreshPayload, []byte("\x1b[2J\x1b[H")...)
-			if visible, visErr := c.server.ctrl.CapturePaneVisible(req.Agent); visErr != nil {
-				log.Printf("subscribe-output(%s): capture visible snapshot error: %v", req.Agent, visErr)
-			} else if visible != "" {
-				refreshPayload = append(refreshPayload, []byte(visible)...)
+		// Drain any pipe-pane bytes accumulated during the ForceRedraw —
+		// they contain intermediate redraws (shrunk + restored) that would
+		// duplicate the snapshot content if forwarded.
+	drain:
+		for {
+			select {
+			case _, ok := <-ch:
+				if !ok {
+					break drain
+				}
+			default:
+				break drain
 			}
-
-			c.SendBinary(makeBinaryFrame(BinaryTerminalSnapshot, req.Agent, refreshPayload))
 		}
+
+		// Now capture the clean post-redraw screen.
+		scrollback, _ := c.server.ctrl.CapturePaneHistory(req.Agent)
+		visible, visErr := c.server.ctrl.CapturePaneVisible(req.Agent)
+		if visErr != nil {
+			log.Printf("subscribe-output(%s): capture visible snapshot error: %v", req.Agent, visErr)
+		}
+		log.Printf("subscribe-output(%s): scrollback=%d bytes, visible=%d bytes", req.Agent, len(scrollback), len(visible))
+
+		refreshPayload := make([]byte, 0, len(scrollback)+len(visible)+1024)
+		if scrollback != "" {
+			refreshPayload = append(refreshPayload, []byte(scrollback)...)
+		}
+		refreshPayload = append(refreshPayload, []byte("\x1b[2J\x1b[H")...)
+		if visible != "" {
+			refreshPayload = append(refreshPayload, []byte(visible)...)
+		}
+		log.Printf("subscribe-output(%s): sending 0x05 snapshot, %d bytes total", req.Agent, len(refreshPayload))
+		c.SendBinary(makeBinaryFrame(BinaryTerminalSnapshot, req.Agent, refreshPayload))
 
 		// Stream raw bytes in background
 		go func() {
