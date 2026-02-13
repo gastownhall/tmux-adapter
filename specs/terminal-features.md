@@ -80,6 +80,24 @@ Live output follows as subsequent binary 0x01 frames.
   - Remaining bytes are sent byte-exact via `send-keys -H`.
   - Frontend explicitly captures Shift+Tab and sends `ESC [ Z` to avoid browser focus traversal.
 
+### Mobile Keyboard Input (Implemented)
+
+Mobile keyboard input works through a `beforeinput` event interception pattern:
+
+1. ghostty-web sets `contenteditable="true"` on its parent host div
+2. On mobile, tapping focuses the contenteditable div, not ghostty-web's internal textarea
+3. `<tmux-adapter-web>` intercepts `beforeinput` events targeting the host div
+4. Intercepted events are translated to terminal bytes and dispatched as `terminal-input` events
+5. VKB open/close is consumer-controlled via `focusTextarea()` / `blurTextarea()`
+
+The Gastown Dashboard sample adds a keyboard toggle button (⌨) in the header that calls these methods with a 500ms focus guard window to prevent the resize-triggered blur from dismissing the VKB.
+
+### Outstanding Mobile Issues
+
+1. **No touch scrolling** — Terminal output cannot be scrolled by touch gesture
+2. **Header scrolls with VKB** — Header should stay pinned when virtual keyboard appears
+3. **Audio input positioning** — Voice recording UI appears in wrong position above keyboard
+
 ---
 
 ## Terminal Command

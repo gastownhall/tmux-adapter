@@ -19,6 +19,7 @@ the tmux-adapter binary protocol needs has been extracted into a
 - Sticky scroll preservation (stay at bottom, or hold position while output streams)
 - Initial-paint visibility gating (hidden until first snapshot renders, then auto-focus)
 - Shift+Tab capture (prevent browser focus traversal, send CSI Z)
+- Mobile touch device support: `beforeinput` interception for VKB keystrokes, consumer-controlled VKB via `focusTextarea()`/`blurTextarea()`
 
 The Gastown Dashboard sample (`samples/index.html`) is a consumer of
 this component — it handles agent lifecycle UI, WebSocket connection management,
@@ -137,7 +138,10 @@ All attributes are optional. Changes are reflected live via
 | Method | Signature | Description |
 |--------|-----------|-------------|
 | `write` | `write(data: Uint8Array): void` | Write terminal output bytes. Handles initial-paint reveal, resize-pending reveal, and sticky scroll preservation. |
-| `focus` | `focus(): void` | Focus the terminal for keyboard input. |
+| `reset` | `reset(): void` | Clear terminal, hide host, prepare for fresh snapshot. Next `write()` triggers reveal. |
+| `focus` | `focus(): void` | Focus the terminal for keyboard input. On touch devices, skips auto-focus to prevent VKB popup. |
+| `focusTextarea` | `focusTextarea(): void` | Focus the contenteditable host div to trigger the virtual keyboard on mobile. |
+| `blurTextarea` | `blurTextarea(): void` | Blur the host div to dismiss the virtual keyboard on mobile. |
 
 The API is intentionally tiny. The element manages its own lifecycle — creation
 happens in `connectedCallback`, cleanup in `disconnectedCallback`. There's no
@@ -167,18 +171,20 @@ WebRTC, postMessage, mock harness for testing.
 
 ```
 connectedCallback:
-  1. Create internal host div (.terminal-host)
+  1. Create internal host div (.tmux-adapter-web-host)
   2. Inject scoped styles (if not already present)
-  3. Create ghostty-web Terminal with current attribute values
-  4. terminal.open(hostDiv)
-  5. Hide cursor at (0,0) — write '\x1b[?25l'
-  6. Wire onData → dispatch 'terminal-input'
-  7. Wire onResize → debounce → dispatch 'terminal-resize'
-  8. Wire Shift+Tab capture → send CSI Z via 'terminal-input'
-  9. Wire drag-drop + paste handlers → dispatch 'file-upload'
- 10. Set up ResizeObserver → fitTerminal()
- 11. Mark pending initial paint (hidden until first write)
- 12. Dispatch 'terminal-ready'
+  3. Mark pending initial paint BEFORE terminal.open() (suppresses onResize during open)
+  4. Create ghostty-web Terminal with current attribute values
+  5. terminal.open(hostDiv)
+  6. Hide cursor at (0,0) — write '\x1b[?25l'
+  7. Hide host until first write reveals it
+  8. Wire onData → dispatch 'terminal-input' (scrolls to bottom on user input)
+  9. Wire onResize → debounce → dispatch 'terminal-resize' (suppressed during initial paint)
+ 10. Wire Shift+Tab capture → send CSI Z via 'terminal-input'
+ 11. Wire drag-drop + paste handlers → dispatch 'file-upload'
+ 12. On touch devices: suppress touchend auto-focus, wire beforeinput → terminal-input
+ 13. Set up ResizeObserver → fitTerminal()
+ 14. Dispatch 'terminal-ready'
 
 attributeChangedCallback:
   - Update terminal options live (font-size, scrollback, etc.)
@@ -190,6 +196,40 @@ disconnectedCallback:
   3. Dispose ghostty-web Terminal
   4. Remove internal DOM
 ```
+
+#### Mobile Touch Device Support
+
+The component detects touch devices (`'ontouchstart' in window || navigator.maxTouchPoints > 0`) and applies mobile-specific behavior:
+
+**Virtual Keyboard (VKB) input path:**
+ghostty-web marks its parent div as `contenteditable="true"`. On mobile, tapping focuses the contenteditable div rather than ghostty-web's internal textarea, so ghostty-web's InputHandler never sees keystrokes. The component intercepts `beforeinput` events on the contenteditable host div and dispatches them as `terminal-input` events:
+
+- `insertText` / `insertReplacementText` → typed text (newlines → `\r`)
+- `insertLineBreak` / `insertParagraph` → `\r` (Enter)
+- `deleteContentBackward` → `\x7f` (Backspace)
+- `deleteContentForward` → `\x1b[3~` (Delete)
+
+**VKB lifecycle:**
+The component does NOT manage VKB open/close — that's the consumer's job via `focusTextarea()` / `blurTextarea()`. The Gastown Dashboard sample puts a keyboard toggle button (⌨) in the header bar that calls these methods.
+
+**Resize flicker suppression on touch:**
+On desktop, `#markResizePending()` hides the host div during resize to prevent flicker. On touch devices this is skipped — hiding the host blurs the textarea, which dismisses the VKB, causing an infinite resize loop (VKB dismiss → resize → VKB open → resize...).
+
+**Touch event suppression:**
+`touchend` events on the host div are stopped via `stopPropagation()` to prevent ghostty-web's auto-focus on touch, which would pop the VKB on every tap including scrolls.
+
+**Auto-focus suppression:**
+`focus()` skips `terminal.focus()` on touch devices. VKB is controlled externally via `focusTextarea()` / `blurTextarea()`.
+
+##### Outstanding Mobile Issues
+
+The following are known issues to be fixed in future work:
+
+1. **No touch scrolling** — Terminal content cannot be scrolled by touch gesture. Need to investigate ghostty-web's touch scroll support and potentially add touch event handling.
+
+2. **Header scrolls with VKB** — When the virtual keyboard appears, the header scrolls up off-screen instead of staying pinned. The `visualViewport` resize handler adjusts container height, but the header needs to be anchored independently of the scroll.
+
+3. **Audio input positioning** — During voice recording (speech-to-text), the audio input UI appears in an unexpected position just above the keyboard instead of near the input area.
 
 #### Framework Integration
 
@@ -464,10 +504,12 @@ incoming binary frames to the appropriate element's `write()` method.
 | Scroll preservation | Handled by element |
 | Binary framing | `import { encodeBinaryFrame, decodeBinaryFrame }` |
 | Terminal pooling | DOM is the pool — toggle `display` or add/remove elements |
+| Mobile keyboard input translation | Handled by element (`beforeinput` → `terminal-input`) |
+| Mobile VKB open/close | Consumer calls `focusTextarea()` / `blurTextarea()` |
 
 The consumer keeps full control over transport (WebSocket), agent lifecycle
-(JSON messages), and UI (sidebar, header, mobile drawer). The terminal hosting
-complexity lives entirely inside `<tmux-adapter-web>`.
+(JSON messages), UI (sidebar, header, mobile drawer), and VKB toggle. The
+terminal hosting complexity lives entirely inside `<tmux-adapter-web>`.
 
 ---
 

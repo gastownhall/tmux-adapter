@@ -5,10 +5,18 @@ A WebSocket service that exposes gastown agents as a programmatic interface. Cli
 ## Startup
 
 ```
-tmux-adapter [--gt-dir ~/gt] [--port 8080] [--auth-token TOKEN] [--allowed-origins "localhost:*"]
+tmux-adapter [--gt-dir ~/gt] [--port 8080] [--auth-token TOKEN] [--allowed-origins "localhost:*"] [--debug-serve-dir ./samples]
 ```
 
-`--gt-dir` is the gastown town directory (default: `~/gt`). The adapter uses this to scope which tmux sessions belong to this gastown instance and to resolve agent metadata.
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--gt-dir` | `~/gt` | Gastown town directory — scopes which tmux sessions belong to this instance |
+| `--port` | `8080` | HTTP/WebSocket listen port |
+| `--auth-token` | (none) | Require this token as `?token=` query param on WebSocket connections |
+| `--allowed-origins` | `localhost:*` | Comma-separated origin patterns for CORS and WebSocket origin checks |
+| `--debug-serve-dir` | (none) | Serve static files from this directory at `/` (development only) |
+
+`--debug-serve-dir` is for development workflows where you want to serve a sample app on the same port as the adapter. This enables single-tunnel ngrok setups for mobile testing — one tunnel, one URL for both API and UI.
 
 ## Connection
 
@@ -240,6 +248,10 @@ In addition to the WebSocket at `/ws`, the adapter serves:
 | `GET /tmux-adapter-web/*` | Embedded `<tmux-adapter-web>` web component files (CORS-enabled). The component is baked into the binary via `go:embed` — the adapter is its own CDN. |
 | `GET /healthz` | Static process liveness check (`{"ok":true}`) |
 | `GET /readyz` | tmux control mode readiness check (`200` on success, `503` with error) |
+| `POST /debug/log` | Remote debug logging (only when `--debug-serve-dir` is set). Accepts plain text body, logs to server stderr as `[UI] ...`. Used for mobile debugging where browser DevTools aren't available. |
+| `GET /*` | Static file serving from `--debug-serve-dir` (only when set). Development only. |
+
+All HTTP responses include `Cache-Control: no-store` and `Access-Control-Allow-Origin: *` headers to prevent stale cached files on mobile browsers during development.
 
 ---
 
