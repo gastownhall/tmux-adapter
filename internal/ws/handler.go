@@ -360,9 +360,8 @@ func handleSubscribeOutput(c *Client, req Request) {
 			OK:   &okVal,
 		})
 
-		// Brief pause for pipe-pane to activate, then drain any output the
-		// agent was already producing — we only want the controlled redraw.
-		time.Sleep(50 * time.Millisecond)
+		// Drain any output the agent was already producing — we only want
+		// the controlled redraw.
 		drained := 0
 	drain:
 		for {
