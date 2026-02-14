@@ -20,7 +20,7 @@ websocat ws://localhost:8080/ws
 
 ### Sample Dashboard
 
-The Gastown Dashboard lives in `samples/index.html` — a consumer of the WebSocket API, not part of the server. The adapter serves the `<tmux-adapter-web>` web component at `/tmux-adapter-web/`, so the sample (or any consumer) imports it directly from the adapter — no local file paths needed.
+The Gastown Dashboard lives in `samples/adapter.html` — a consumer of the WebSocket API, not part of the server. The adapter serves the `<tmux-adapter-web>` web component at `/tmux-adapter-web/`, so the sample (or any consumer) imports it directly from the adapter — no local file paths needed.
 
 **Quick (single port, development):**
 
@@ -198,6 +198,102 @@ Unsubscribe:
 
 Only agents with a live process are exposed — zombie sessions are filtered out.
 
+## tmux-converter
+
+A companion service that streams **structured conversation events** from CLI AI agents over WebSocket. Instead of raw terminal bytes, it watches the conversation files agents write to disk (`.jsonl` for Claude Code) and streams normalized JSON events.
+
+### Quick Start
+
+```bash
+go build -o tmux-converter ./cmd/tmux-converter/
+gt start
+./tmux-converter --gt-dir ~/gt --listen :8081
+```
+
+### Converter Dashboard
+
+```bash
+./tmux-converter --gt-dir ~/gt --listen :8081 --debug-serve-dir ./samples
+open http://localhost:8081/converter.html
+```
+
+### Running Both Services
+
+```bash
+go build -o tmux-adapter . && go build -o tmux-converter ./cmd/tmux-converter/
+./tmux-adapter --gt-dir ~/gt --port 8080 --debug-serve-dir ./samples &
+./tmux-converter --gt-dir ~/gt --listen :8081 --debug-serve-dir ./samples &
+# Adapter dashboard: http://localhost:8080/adapter.html
+# Converter dashboard: http://localhost:8081/converter.html
+```
+
+### Converter API
+
+JSON-only WebSocket protocol at `/ws`. Requires a protocol handshake as the first message:
+
+```json
+→ {"id":"1", "type":"hello", "protocol":"tmux-converter.v1"}
+← {"id":"1", "type":"hello", "ok":true, "protocol":"tmux-converter.v1"}
+```
+
+**Follow an agent** (auto-subscribes to current conversation, auto-switches on rotation):
+
+```json
+→ {"id":"2", "type":"follow-agent", "agent":"hq-mayor", "filter":{"excludeProgress":true}}
+← {"id":"2", "type":"follow-agent", "ok":true, "conversationId":"claude:hq-mayor:abc123",
+   "events":[...], "totalEvents":835}
+```
+
+**List agents:**
+
+```json
+→ {"id":"3", "type":"list-agents"}
+← {"id":"3", "type":"list-agents", "agents":[...]}
+```
+
+**Subscribe to agent lifecycle:**
+
+```json
+→ {"id":"4", "type":"subscribe-agents"}
+← {"id":"4", "type":"subscribe-agents", "ok":true, "agents":[...]}
+← {"type":"agent-added", "agent":{...}}
+← {"type":"agent-removed", "name":"..."}
+```
+
+**Unsubscribe:**
+
+```json
+→ {"id":"5", "type":"unsubscribe-agent", "agent":"hq-mayor"}
+← {"id":"5", "type":"unsubscribe-agent", "ok":true}
+```
+
+### Converter HTTP Endpoints
+
+- `GET /ws` → WebSocket endpoint
+- `GET /healthz` → process liveness (`{"ok":true}`)
+- `GET /readyz` → tmux + registry readiness
+- `GET /conversations` → list active conversations with metadata
+
+### Converter Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--gt-dir` | `~/gt` | Gastown town directory |
+| `--listen` | `:8081` | HTTP/WebSocket listen address |
+| `--debug-serve-dir` | `` | Serve static files at `/` (development only) |
+
+### How It Works
+
+1. Connects to tmux via control mode (`converter-monitor` session)
+2. Agent registry scans for gastown agents, emits lifecycle events
+3. For each agent with runtime `claude`, discovers conversation files at `~/.claude/projects/{encoded-workdir}/*.jsonl`
+4. Loads ALL historical conversation files (oldest-first), then tails the most recent for live events
+5. Parses Claude Code JSONL into normalized `ConversationEvent` structs
+6. Buffers up to 100,000 events per agent in a ring buffer
+7. WebSocket clients get a snapshot (capped at 20,000 events) plus live streaming
+
+---
+
 ## Architecture
 
 ```
@@ -206,15 +302,20 @@ Clients ◄──ws──► tmux-adapter ◄──control mode──► tmux se
                       ├──pipe-pane (per agent)──► output files
                       │
                       └──/tmux-adapter-web/ ──► embedded web component (go:embed)
+
+Clients ◄──ws──► tmux-converter ◄──control mode──► tmux server
+                      │
+                      └──file watching──► ~/.claude/projects/*/*.jsonl
 ```
 
-- **Component serving**: the `<tmux-adapter-web>` web component is embedded in the binary via `go:embed` and served at `/tmux-adapter-web/` with CORS headers. Consumers import directly from the adapter — the server is its own CDN.
-- **Control mode**: one `tmux -C` connection handles all commands and receives `%sessions-changed` events for lifecycle tracking
+- **Component serving**: the `<tmux-adapter-web>` web component is embedded in the adapter binary via `go:embed` and served at `/tmux-adapter-web/` with CORS headers. Consumers import directly from the adapter — the server is its own CDN.
+- **Control mode**: each service maintains its own `tmux -C` connection (adapter uses `adapter-monitor`, converter uses `converter-monitor`)
 - **Agent detection**: reads `GT_ROLE`/`GT_RIG` env vars, checks `pane_current_command` against known runtimes, walks process descendants for shell-wrapped agents, handles version-as-argv[0] (e.g., Claude showing `2.1.38`)
-- **Output streaming**: `pipe-pane -o` activated per-agent on first subscriber, deactivated on last unsubscribe; each subscribe also sends an immediate `capture-pane` snapshot frame
+- **Output streaming** (adapter): `pipe-pane -o` activated per-agent on first subscriber, deactivated on last unsubscribe; each subscribe also sends an immediate `capture-pane` snapshot frame
+- **Conversation streaming** (converter): discovers `.jsonl` files, loads full history from all files, tails most recent for live events, parses into structured events, buffers and broadcasts to subscribers
 - **Send prompt**: full NudgeSession sequence with per-agent mutex to prevent interleaving
 
-## Flags
+## Adapter Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -224,11 +325,11 @@ Clients ◄──ws──► tmux-adapter ◄──control mode──► tmux se
 | `--allowed-origins` | `localhost:*` | Comma-separated origin patterns for WebSocket CORS |
 | `--debug-serve-dir` | `` | Serve static files from this directory at `/` (development only) |
 
-## HTTP Endpoints
+## Adapter HTTP Endpoints
 
-- `GET /tmux-adapter-web/*` -> embedded web component files (CORS-enabled)
-- `GET /healthz` -> static process liveness (`{"ok":true}`)
-- `GET /readyz` -> tmux control mode readiness check (`200` on success, `503` with error on failure)
+- `GET /tmux-adapter-web/*` → embedded web component files (CORS-enabled)
+- `GET /healthz` → static process liveness (`{"ok":true}`)
+- `GET /readyz` → tmux control mode readiness check (`200` on success, `503` with error on failure)
 
 ## Development Checks
 

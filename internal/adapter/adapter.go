@@ -11,7 +11,7 @@ import (
 
 	"github.com/gastownhall/tmux-adapter/internal/agents"
 	"github.com/gastownhall/tmux-adapter/internal/tmux"
-	"github.com/gastownhall/tmux-adapter/internal/ws"
+	"github.com/gastownhall/tmux-adapter/internal/wsadapter"
 	"github.com/gastownhall/tmux-adapter/web"
 )
 
@@ -21,7 +21,7 @@ type Adapter struct {
 	ctrl           *tmux.ControlMode
 	registry       *agents.Registry
 	pipeMgr        *tmux.PipePaneManager
-	wsSrv          *ws.Server
+	wsSrv          *wsadapter.Server
 	httpSrv        *http.Server
 	gtDir          string
 	port           int
@@ -44,7 +44,7 @@ func New(gtDir string, port int, authToken string, originPatterns []string, debu
 // Start initializes all components and starts the HTTP/WebSocket server.
 func (a *Adapter) Start() error {
 	// 1. Connect to tmux in control mode
-	ctrl, err := tmux.NewControlMode()
+	ctrl, err := tmux.NewControlMode("adapter-monitor")
 	if err != nil {
 		return fmt.Errorf("tmux control mode: %w", err)
 	}
@@ -52,13 +52,13 @@ func (a *Adapter) Start() error {
 	log.Println("connected to tmux control mode")
 
 	// 2. Create agent registry
-	a.registry = agents.NewRegistry(ctrl, a.gtDir)
+	a.registry = agents.NewRegistry(ctrl, a.gtDir, []string{"adapter-monitor"})
 
 	// 3. Create pipe-pane manager
 	a.pipeMgr = tmux.NewPipePaneManager(ctrl)
 
 	// 4. Create WebSocket server
-	a.wsSrv = ws.NewServer(a.registry, a.pipeMgr, ctrl, a.authToken, a.originPatterns)
+	a.wsSrv = wsadapter.NewServer(a.registry, a.pipeMgr, ctrl, a.authToken, a.originPatterns)
 
 	// 5. Start registry watching
 	if err := a.registry.Start(); err != nil {
@@ -153,7 +153,7 @@ func (a *Adapter) Stop() {
 // subscribed WebSocket clients.
 func (a *Adapter) forwardEvents() {
 	for event := range a.registry.Events() {
-		msg := ws.MakeAgentEvent(event.Type, event.Agent)
+		msg := wsadapter.MakeAgentEvent(event.Type, event.Agent)
 		a.wsSrv.BroadcastToAgentSubscribers(msg)
 	}
 }

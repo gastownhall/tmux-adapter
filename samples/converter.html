@@ -1,0 +1,1120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Converter Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+    background: #0d1117;
+    color: #c9d1d9;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .container {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    height: 100vh;
+  }
+
+  /* --- Left panel: agent list --- */
+  .sidebar {
+    background: #161b22;
+    border-right: 1px solid #30363d;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sidebar-header {
+    padding: 16px;
+    border-bottom: 1px solid #30363d;
+    font-size: 14px;
+    font-weight: 600;
+    color: #e6edf3;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .sidebar-title {
+    font-size: 13px;
+    color: #8b949e;
+    letter-spacing: 0.4px;
+  }
+
+  .agent-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+  }
+
+  .agent-card {
+    padding: 10px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-bottom: 4px;
+    border: 1px solid transparent;
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .agent-card:hover { background: #1c2128; }
+  .agent-card.selected { background: #1c2128; border-color: #58a6ff; }
+
+  .agent-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #e6edf3;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow-wrap: anywhere;
+  }
+
+  .agent-meta {
+    font-size: 11px;
+    color: #8b949e;
+    margin-top: 4px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .badge {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .badge-runtime { color: #8b949e; }
+
+  .badge-runtime.claude { color: #a371f7; }
+  .badge-runtime.codex { color: #3fb950; }
+  .badge-runtime.gemini { color: #58a6ff; }
+
+  .agent-conv-id {
+    font-size: 10px;
+    color: #484f58;
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* --- Right panel: conversation viewer --- */
+  .main {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .main-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid #30363d;
+    font-size: 13px;
+    color: #8b949e;
+    background: #161b22;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 8px;
+    min-height: 44px;
+    flex-wrap: nowrap;
+  }
+
+  .header-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .main-header .agent-label {
+    color: #e6edf3;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .header-conv-id {
+    color: #484f58;
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .connection-status {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #58a6ff;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .connection-status .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #3fb950;
+    flex-shrink: 0;
+  }
+
+  .connection-status .dot.disconnected { background: #f85149; }
+
+  .events-wrap {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    scroll-behavior: smooth;
+  }
+
+  .placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #484f58;
+    font-size: 14px;
+  }
+
+  .empty-sidebar {
+    padding: 16px;
+    color: #484f58;
+    font-size: 12px;
+    text-align: center;
+  }
+
+  .agent-list-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 56px;
+    padding: 12px;
+    color: #8b949e;
+    font-size: 12px;
+    text-align: center;
+  }
+
+  .spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid #30363d;
+    border-top-color: #58a6ff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* --- Conversation events --- */
+  .snapshot-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 16px 0;
+    font-size: 11px;
+    color: #484f58;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .snapshot-divider::before,
+  .snapshot-divider::after {
+    content: '';
+    flex: 1;
+    border-top: 1px dashed #30363d;
+  }
+
+  .event-block {
+    margin-bottom: 8px;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    line-height: 1.5;
+    border-left: 3px solid transparent;
+    position: relative;
+  }
+
+  .event-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+    font-size: 11px;
+    color: #8b949e;
+  }
+
+  .event-type-badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .event-seq {
+    color: #484f58;
+    font-size: 10px;
+  }
+
+  .event-time {
+    color: #484f58;
+    font-size: 10px;
+    margin-left: auto;
+  }
+
+  .event-content {
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+
+  .event-content::-webkit-scrollbar { width: 4px; }
+  .event-content::-webkit-scrollbar-track { background: transparent; }
+  .event-content::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+
+  /* Event type styles */
+  .event-block.user {
+    background: #0d2137;
+    border-left-color: #58a6ff;
+  }
+  .event-block.user .event-type-badge { background: #1f6feb33; color: #58a6ff; }
+
+  .event-block.assistant {
+    background: #0d2117;
+    border-left-color: #3fb950;
+  }
+  .event-block.assistant .event-type-badge { background: #23883333; color: #3fb950; }
+
+  .event-block.tool_use {
+    background: #261d0d;
+    border-left-color: #d29922;
+  }
+  .event-block.tool_use .event-type-badge { background: #d2992233; color: #d29922; }
+
+  .event-block.tool_result {
+    background: #261a0d;
+    border-left-color: #f0883e;
+  }
+  .event-block.tool_result .event-type-badge { background: #f0883e33; color: #f0883e; }
+
+  .event-block.thinking {
+    background: #1a0d26;
+    border-left-color: #a371f7;
+  }
+  .event-block.thinking .event-type-badge { background: #a371f733; color: #a371f7; }
+
+  .event-block.system {
+    background: #161b22;
+    border-left-color: #8b949e;
+  }
+  .event-block.system .event-type-badge { background: #8b949e33; color: #8b949e; }
+
+  .event-block.progress {
+    background: #0d1f26;
+    border-left-color: #79c0ff;
+  }
+  .event-block.progress .event-type-badge { background: #79c0ff33; color: #79c0ff; }
+
+  .event-block.error {
+    background: #260d0d;
+    border-left-color: #f85149;
+  }
+  .event-block.error .event-type-badge { background: #f8514933; color: #f85149; }
+
+  .event-block.turn_end {
+    background: #161b22;
+    border-left-color: #484f58;
+  }
+  .event-block.turn_end .event-type-badge { background: #484f5833; color: #484f58; }
+
+  .event-block.queue_op {
+    background: #161b22;
+    border-left-color: #484f58;
+  }
+  .event-block.queue_op .event-type-badge { background: #484f5833; color: #484f58; }
+
+  .tool-name {
+    font-weight: 600;
+    color: #d29922;
+    font-size: 12px;
+  }
+
+  .tool-input {
+    background: #0d1117;
+    border-radius: 4px;
+    padding: 6px 8px;
+    margin-top: 4px;
+    font-size: 11px;
+    color: #8b949e;
+    max-height: 150px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .tool-output {
+    background: #0d1117;
+    border-radius: 4px;
+    padding: 6px 8px;
+    margin-top: 4px;
+    font-size: 11px;
+    color: #8b949e;
+    max-height: 200px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .token-usage {
+    font-size: 10px;
+    color: #484f58;
+    margin-top: 4px;
+  }
+
+  .switch-notice {
+    text-align: center;
+    padding: 12px;
+    color: #58a6ff;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px dashed #1f6feb;
+    border-radius: 8px;
+    margin: 16px 0;
+    background: #0d111733;
+  }
+
+  .event-count-info {
+    text-align: center;
+    padding: 8px;
+    color: #484f58;
+    font-size: 11px;
+    margin-bottom: 8px;
+  }
+
+  /* Filter bar */
+  .filter-bar {
+    display: flex;
+    gap: 6px;
+    padding: 8px 16px;
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .filter-bar label {
+    font-size: 11px;
+    color: #8b949e;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+  }
+
+  .filter-bar input[type="checkbox"] {
+    accent-color: #58a6ff;
+  }
+
+  .filter-label {
+    font-size: 11px;
+    color: #484f58;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-right: 4px;
+  }
+
+  /* Mobile */
+  .mobile-nav-btn,
+  .sidebar-close {
+    display: none;
+    border: 1px solid #30363d;
+    background: #0d1117;
+    color: #c9d1d9;
+    border-radius: 6px;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1;
+    width: 32px;
+    height: 30px;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  .sidebar-close { margin-left: auto; font-size: 20px; }
+
+  .drawer-backdrop { display: none; }
+
+  @media (max-width: 900px) {
+    .container {
+      grid-template-columns: 1fr;
+      height: 100vh;
+    }
+
+    .sidebar {
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      width: min(86vw, 340px);
+      border-right: 1px solid #30363d;
+      transform: translateX(-100%);
+      transition: transform 0.2s ease;
+      z-index: 50;
+      box-shadow: 12px 0 28px rgba(0, 0, 0, 0.4);
+    }
+
+    body.drawer-open .sidebar { transform: translateX(0); }
+
+    .drawer-backdrop {
+      display: block;
+      position: fixed;
+      inset: 0;
+      background: rgba(1, 4, 9, 0.62);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+      z-index: 40;
+    }
+
+    body.drawer-open .drawer-backdrop {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .mobile-nav-btn,
+    .sidebar-close {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <button type="button" class="sidebar-close" id="sidebar-close" aria-label="Close drawer">&#xD7;</button>
+      <span class="sidebar-title">Agents</span>
+    </div>
+    <div class="agent-list" id="agent-list">
+      <div class="agent-list-state"><span class="spinner"></span><span>Loading agents...</span></div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="main-header" id="main-header">
+      <button type="button" class="mobile-nav-btn" id="mobile-nav-btn" aria-label="Open drawer">&#x2630;</button>
+      <div class="header-content" id="header-content">Select an agent to view conversation</div>
+      <div class="connection-status" id="connection-status">
+        <span class="dot disconnected" id="status-dot"></span>
+        <span id="status-text">Connecting...</span>
+      </div>
+    </div>
+    <div class="filter-bar" id="filter-bar" style="display:none">
+      <span class="filter-label">Show:</span>
+      <label><input type="checkbox" id="show-thinking" checked> Thinking</label>
+      <label><input type="checkbox" id="show-progress"> Progress</label>
+      <label><input type="checkbox" id="show-tool-input" checked> Tool Input</label>
+      <label><input type="checkbox" id="show-tool-output" checked> Tool Output</label>
+    </div>
+    <div class="events-wrap" id="events-wrap">
+      <div class="placeholder" id="placeholder">Select an agent from the sidebar</div>
+    </div>
+  </div>
+</div>
+<div class="drawer-backdrop" id="drawer-backdrop"></div>
+
+<script>
+var converterHost = new URLSearchParams(location.search).get('converter') || location.host || 'localhost:8081';
+
+// --- State ---
+var agents = new Map();
+var selectedAgent = null;
+var currentConvId = null;
+var currentSubId = null;
+var ws = null;
+var msgId = 0;
+var handshakeDone = false;
+var liveEventCount = 0;
+var autoScroll = true;
+
+// --- DOM refs ---
+var agentListEl = document.getElementById('agent-list');
+var eventsWrapEl = document.getElementById('events-wrap');
+var headerContentEl = document.getElementById('header-content');
+var placeholderEl = document.getElementById('placeholder');
+var statusDot = document.getElementById('status-dot');
+var statusText = document.getElementById('status-text');
+var filterBar = document.getElementById('filter-bar');
+var mobileNavBtn = document.getElementById('mobile-nav-btn');
+var sidebarCloseBtn = document.getElementById('sidebar-close');
+var drawerBackdropEl = document.getElementById('drawer-backdrop');
+var showThinkingEl = document.getElementById('show-thinking');
+var showProgressEl = document.getElementById('show-progress');
+var showToolInputEl = document.getElementById('show-tool-input');
+var showToolOutputEl = document.getElementById('show-tool-output');
+
+// --- Helpers ---
+function clearChildren(el) {
+  while (el.firstChild) el.removeChild(el.firstChild);
+}
+
+function isMobileLayout() {
+  return window.matchMedia('(max-width: 900px)').matches;
+}
+
+function openDrawer() { if (isMobileLayout()) document.body.classList.add('drawer-open'); }
+function closeDrawer() { document.body.classList.remove('drawer-open'); }
+
+function formatTime(ts) {
+  if (!ts) return '';
+  var d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function truncate(str, max) {
+  if (!str || str.length <= max) return str;
+  return str.substring(0, max) + '...';
+}
+
+// --- Track scroll position for auto-scroll ---
+eventsWrapEl.addEventListener('scroll', function() {
+  var el = eventsWrapEl;
+  autoScroll = (el.scrollHeight - el.scrollTop - el.clientHeight) < 50;
+});
+
+function scrollToBottom() {
+  if (autoScroll) {
+    eventsWrapEl.scrollTop = eventsWrapEl.scrollHeight;
+  }
+}
+
+// --- Mobile drawer ---
+if (mobileNavBtn) mobileNavBtn.addEventListener('click', function() { openDrawer(); });
+if (sidebarCloseBtn) sidebarCloseBtn.addEventListener('click', function() { closeDrawer(); });
+if (drawerBackdropEl) drawerBackdropEl.addEventListener('click', function() { closeDrawer(); });
+
+// --- Filter checkboxes ---
+// Server-side filters (excludeProgress, excludeThinking) require re-follow to update the data.
+// Client-only filters (tool input, tool output) just re-render.
+[showThinkingEl, showProgressEl].forEach(function(el) {
+  el.addEventListener('change', function() {
+    if (selectedAgent && handshakeDone) {
+      send({ type: 'follow-agent', agent: selectedAgent, filter: buildServerFilter() });
+    }
+  });
+});
+[showToolInputEl, showToolOutputEl].forEach(function(el) {
+  el.addEventListener('change', function() { reRenderEvents(); });
+});
+
+function buildServerFilter() {
+  var f = {};
+  if (!showProgressEl.checked) f.excludeProgress = true;
+  if (!showThinkingEl.checked) f.excludeThinking = true;
+  return f;
+}
+
+// --- WebSocket ---
+function connect() {
+  var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var wsURL = proto + '//' + converterHost + '/ws';
+  ws = new WebSocket(wsURL);
+  handshakeDone = false;
+
+  ws.onopen = function() {
+    statusDot.classList.remove('disconnected');
+    statusText.textContent = 'Connected';
+    send({ id: 'hello', type: 'hello', protocol: 'tmux-converter.v1' });
+  };
+
+  ws.onmessage = function(ev) {
+    handleMessage(JSON.parse(ev.data));
+  };
+
+  ws.onclose = function() {
+    statusDot.classList.add('disconnected');
+    statusText.textContent = 'Disconnected';
+    handshakeDone = false;
+    setTimeout(connect, 2000);
+  };
+
+  ws.onerror = function() {};
+}
+
+function send(obj) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!obj.id) obj.id = 'req' + (++msgId);
+  ws.send(JSON.stringify(obj));
+}
+
+// --- Message handling ---
+var eventStore = []; // all events for the current conversation
+
+function handleMessage(msg) {
+  switch (msg.type) {
+    case 'hello':
+      if (msg.ok) {
+        handshakeDone = true;
+        send({ type: 'subscribe-agents' });
+        if (selectedAgent) {
+          send({ type: 'follow-agent', agent: selectedAgent, filter: buildServerFilter() });
+        }
+      }
+      break;
+
+    case 'list-agents':
+    case 'subscribe-agents':
+      agents.clear();
+      if (msg.agents) msg.agents.forEach(function(a) { agents.set(a.name, a); });
+      renderAgentList();
+      break;
+
+    case 'agent-added':
+      if (msg.agent) agents.set(msg.agent.name, msg.agent);
+      renderAgentList();
+      break;
+
+    case 'agent-removed':
+      var removedName = msg.name || (msg.agent && msg.agent.name);
+      if (removedName) {
+        agents.delete(removedName);
+        if (selectedAgent === removedName) deselectAgent();
+      }
+      renderAgentList();
+      break;
+
+    case 'agent-updated':
+      if (msg.agent) agents.set(msg.agent.name, msg.agent);
+      renderAgentList();
+      break;
+
+    case 'follow-agent':
+      if (msg.ok) {
+        currentSubId = msg.subscriptionId;
+        if (msg.conversationId) {
+          currentConvId = msg.conversationId;
+          eventStore = msg.events || [];
+          liveEventCount = 0;
+          renderEvents(eventStore, true);
+        } else {
+          // Pending follow — no conversation yet, show waiting state
+          eventStore = [];
+          liveEventCount = 0;
+          clearChildren(eventsWrapEl);
+          showEventsPanel();
+          var waiting = document.createElement('div');
+          waiting.className = 'event-count-info';
+          waiting.textContent = 'No conversation yet \u2014 waiting for activity...';
+          eventsWrapEl.appendChild(waiting);
+        }
+        updateHeader();
+      } else {
+        // Follow failed — show error
+        clearChildren(eventsWrapEl);
+        showEventsPanel();
+        var errDiv = document.createElement('div');
+        errDiv.className = 'event-count-info';
+        errDiv.style.color = '#f85149';
+        errDiv.textContent = 'Error: ' + (msg.error || 'unknown');
+        eventsWrapEl.appendChild(errDiv);
+      }
+      break;
+
+    case 'conversation-snapshot':
+      currentConvId = msg.conversationId;
+      currentSubId = msg.subscriptionId;
+      eventStore = msg.events || [];
+      liveEventCount = 0;
+      renderEvents(eventStore, true);
+      updateHeader();
+      break;
+
+    case 'conversation-event':
+      if (msg.event && msg.subscriptionId === currentSubId) {
+        eventStore.push(msg.event);
+        liveEventCount++;
+        appendEventToDOM(msg.event, false);
+        scrollToBottom();
+      }
+      break;
+
+    case 'conversation-switched':
+      currentConvId = msg.to;
+      addSwitchNotice(msg.from, msg.to);
+      break;
+
+    case 'error':
+      console.error('ws error:', msg.error);
+      break;
+  }
+}
+
+// --- Agent list rendering ---
+function renderAgentList() {
+  clearChildren(agentListEl);
+
+  if (agents.size === 0) {
+    var empty = document.createElement('div');
+    empty.className = 'agent-list-state';
+    empty.textContent = 'No agents running';
+    agentListEl.appendChild(empty);
+    return;
+  }
+
+  var sorted = Array.from(agents.values()).sort(function(a, b) {
+    return a.name.localeCompare(b.name);
+  });
+
+  sorted.forEach(function(agent) {
+    var card = document.createElement('div');
+    card.className = 'agent-card' + (agent.name === selectedAgent ? ' selected' : '');
+    card.addEventListener('click', function() { selectAgent(agent.name); });
+
+    var nameRow = document.createElement('div');
+    nameRow.className = 'agent-name';
+    var nameSpan = document.createElement('span');
+    nameSpan.textContent = agent.name;
+    nameRow.appendChild(nameSpan);
+    card.appendChild(nameRow);
+
+    var metaRow = document.createElement('div');
+    metaRow.className = 'agent-meta';
+    var rtBadge = document.createElement('span');
+    rtBadge.className = 'badge-runtime' + (agent.runtime ? ' ' + agent.runtime : '');
+    rtBadge.textContent = agent.runtime || '?';
+    metaRow.appendChild(rtBadge);
+    card.appendChild(metaRow);
+
+    if (agent.conversationId) {
+      var convRow = document.createElement('div');
+      convRow.className = 'agent-conv-id';
+      convRow.textContent = agent.conversationId;
+      card.appendChild(convRow);
+    }
+
+    agentListEl.appendChild(card);
+  });
+}
+
+// --- Agent selection ---
+function selectAgent(name) {
+  if (selectedAgent === name) {
+    if (isMobileLayout()) closeDrawer();
+    return;
+  }
+
+  // Unfollow previous
+  if (selectedAgent) {
+    send({ type: 'unsubscribe-agent', agent: selectedAgent });
+  }
+
+  selectedAgent = name;
+  currentConvId = null;
+  currentSubId = null;
+  eventStore = [];
+  liveEventCount = 0;
+  renderAgentList();
+  updateHeader();
+  showEventsPanel();
+  clearChildren(eventsWrapEl);
+
+  // Show loading
+  var loading = document.createElement('div');
+  loading.className = 'agent-list-state';
+  var spinner = document.createElement('span');
+  spinner.className = 'spinner';
+  loading.appendChild(spinner);
+  var loadingText = document.createElement('span');
+  loadingText.textContent = 'Loading conversation...';
+  loading.appendChild(loadingText);
+  eventsWrapEl.appendChild(loading);
+
+  send({ type: 'follow-agent', agent: name, filter: buildServerFilter() });
+
+  if (isMobileLayout()) closeDrawer();
+}
+
+function deselectAgent() {
+  if (selectedAgent) {
+    send({ type: 'unsubscribe-agent', agent: selectedAgent });
+  }
+  selectedAgent = null;
+  currentConvId = null;
+  currentSubId = null;
+  eventStore = [];
+
+  clearChildren(headerContentEl);
+  headerContentEl.textContent = 'Select an agent to view conversation';
+  filterBar.style.display = 'none';
+
+  clearChildren(eventsWrapEl);
+  placeholderEl.style.display = '';
+  eventsWrapEl.appendChild(placeholderEl);
+
+  renderAgentList();
+  if (isMobileLayout()) openDrawer();
+}
+
+function updateHeader() {
+  if (!selectedAgent) return;
+  var agent = agents.get(selectedAgent);
+
+  clearChildren(headerContentEl);
+
+  var label = document.createElement('span');
+  label.className = 'agent-label';
+  label.textContent = selectedAgent;
+  headerContentEl.appendChild(label);
+
+  if (agent && agent.runtime) {
+    var rtBadge = document.createElement('span');
+    rtBadge.className = 'badge-runtime ' + agent.runtime;
+    rtBadge.textContent = agent.runtime;
+    headerContentEl.appendChild(rtBadge);
+  }
+
+  if (currentConvId) {
+    var convSpan = document.createElement('span');
+    convSpan.className = 'header-conv-id';
+    convSpan.textContent = currentConvId;
+    headerContentEl.appendChild(convSpan);
+  }
+}
+
+function showEventsPanel() {
+  placeholderEl.style.display = 'none';
+  filterBar.style.display = 'flex';
+}
+
+// --- Event rendering ---
+function shouldShowEvent(e) {
+  if (e.type === 'thinking' && !showThinkingEl.checked) return false;
+  if (e.type === 'progress' && !showProgressEl.checked) return false;
+  return true;
+}
+
+var MAX_RENDER_EVENTS = 2000;
+
+function renderEvents(events, isSnapshot) {
+  clearChildren(eventsWrapEl);
+  showEventsPanel();
+
+  if (events.length === 0) {
+    var empty = document.createElement('div');
+    empty.className = 'event-count-info';
+    empty.textContent = 'No events yet — waiting for conversation activity...';
+    eventsWrapEl.appendChild(empty);
+    autoScroll = true;
+    return;
+  }
+
+  // Filter events first
+  var visible = events.filter(shouldShowEvent);
+
+  if (isSnapshot && events.length > 0) {
+    var info = document.createElement('div');
+    info.className = 'event-count-info';
+    if (visible.length > MAX_RENDER_EVENTS) {
+      info.textContent = 'Showing last ' + MAX_RENDER_EVENTS.toLocaleString() + ' of ' + visible.length.toLocaleString() + ' events (' + events.length.toLocaleString() + ' total)';
+    } else {
+      info.textContent = visible.length.toLocaleString() + ' historic event' + (visible.length !== 1 ? 's' : '') + (visible.length !== events.length ? ' (' + events.length.toLocaleString() + ' total)' : '');
+    }
+    eventsWrapEl.appendChild(info);
+  }
+
+  // Render at most MAX_RENDER_EVENTS (most recent) to keep the DOM responsive
+  var renderSlice = visible.length > MAX_RENDER_EVENTS ? visible.slice(visible.length - MAX_RENDER_EVENTS) : visible;
+  renderSlice.forEach(function(e) {
+    eventsWrapEl.appendChild(createEventBlock(e));
+  });
+
+  if (isSnapshot && events.length > 0) {
+    var divider = document.createElement('div');
+    divider.className = 'snapshot-divider';
+    divider.id = 'snapshot-divider';
+    divider.textContent = 'live';
+    eventsWrapEl.appendChild(divider);
+  }
+
+  autoScroll = true;
+  scrollToBottom();
+}
+
+function reRenderEvents() {
+  if (!selectedAgent || eventStore.length === 0) return;
+  var snapshotCount = eventStore.length - liveEventCount;
+  renderEvents(eventStore.slice(0, snapshotCount), true);
+
+  for (var i = snapshotCount; i < eventStore.length; i++) {
+    appendEventToDOM(eventStore[i], false);
+  }
+  scrollToBottom();
+}
+
+function appendEventToDOM(e, isSnapshot) {
+  if (!shouldShowEvent(e)) return;
+
+  // Remove "no events" placeholder if present
+  var info = eventsWrapEl.querySelector('.event-count-info');
+  if (info && info.textContent.indexOf('No events yet') !== -1) {
+    info.remove();
+  }
+
+  eventsWrapEl.appendChild(createEventBlock(e));
+}
+
+function createEventBlock(e) {
+  var block = document.createElement('div');
+  block.className = 'event-block ' + (e.type || 'system');
+
+  // Header
+  var header = document.createElement('div');
+  header.className = 'event-header';
+
+  var typeBadge = document.createElement('span');
+  typeBadge.className = 'event-type-badge';
+  typeBadge.textContent = e.type || '?';
+  header.appendChild(typeBadge);
+
+  if (e.role && e.role !== e.type) {
+    var roleSpan = document.createElement('span');
+    roleSpan.textContent = e.role;
+    roleSpan.style.color = '#8b949e';
+    header.appendChild(roleSpan);
+  }
+
+  if (e.model) {
+    var modelSpan = document.createElement('span');
+    modelSpan.textContent = e.model;
+    modelSpan.style.color = '#484f58';
+    modelSpan.style.fontSize = '10px';
+    header.appendChild(modelSpan);
+  }
+
+  var seqSpan = document.createElement('span');
+  seqSpan.className = 'event-seq';
+  seqSpan.textContent = '#' + e.seq;
+  header.appendChild(seqSpan);
+
+  var timeSpan = document.createElement('span');
+  timeSpan.className = 'event-time';
+  timeSpan.textContent = formatTime(e.timestamp);
+  header.appendChild(timeSpan);
+
+  block.appendChild(header);
+
+  // Content
+  if (e.content && e.content.length > 0) {
+    e.content.forEach(function(cb) {
+      if (cb.type === 'text' && cb.text) {
+        var textDiv = document.createElement('div');
+        textDiv.className = 'event-content';
+        textDiv.textContent = cb.text;
+        block.appendChild(textDiv);
+      } else if (cb.type === 'tool_use' || cb.toolName) {
+        var toolDiv = document.createElement('div');
+        var toolLabel = document.createElement('span');
+        toolLabel.className = 'tool-name';
+        toolLabel.textContent = cb.toolName || '(unknown tool)';
+        toolDiv.appendChild(toolLabel);
+        block.appendChild(toolDiv);
+
+        if (cb.input && showToolInputEl.checked) {
+          var inputDiv = document.createElement('div');
+          inputDiv.className = 'tool-input';
+          var inputStr = typeof cb.input === 'string' ? cb.input : JSON.stringify(cb.input, null, 2);
+          inputDiv.textContent = truncate(inputStr, 2000);
+          block.appendChild(inputDiv);
+        }
+      } else if (cb.type === 'tool_result' || cb.output !== undefined) {
+        if (cb.output && showToolOutputEl.checked) {
+          var outputDiv = document.createElement('div');
+          outputDiv.className = 'tool-output';
+          if (cb.isError) outputDiv.style.color = '#f85149';
+          outputDiv.textContent = truncate(cb.output, 2000);
+          block.appendChild(outputDiv);
+        }
+      } else if (cb.type === 'thinking' && cb.text) {
+        var thinkDiv = document.createElement('div');
+        thinkDiv.className = 'event-content';
+        thinkDiv.style.fontStyle = 'italic';
+        thinkDiv.style.color = '#a371f7';
+        thinkDiv.textContent = truncate(cb.text, 1000);
+        block.appendChild(thinkDiv);
+      }
+    });
+  }
+
+  // Token usage
+  if (e.tokenUsage) {
+    var usageDiv = document.createElement('div');
+    usageDiv.className = 'token-usage';
+    var parts = [];
+    if (e.tokenUsage.inputTokens) parts.push('in:' + e.tokenUsage.inputTokens.toLocaleString());
+    if (e.tokenUsage.outputTokens) parts.push('out:' + e.tokenUsage.outputTokens.toLocaleString());
+    if (e.tokenUsage.cacheRead) parts.push('cache:' + e.tokenUsage.cacheRead.toLocaleString());
+    usageDiv.textContent = parts.join(' | ');
+    block.appendChild(usageDiv);
+  }
+
+  // Duration
+  if (e.durationMs) {
+    var durDiv = document.createElement('div');
+    durDiv.className = 'token-usage';
+    durDiv.textContent = (e.durationMs / 1000).toFixed(1) + 's';
+    block.appendChild(durDiv);
+  }
+
+  return block;
+}
+
+function addSwitchNotice(from, to) {
+  var notice = document.createElement('div');
+  notice.className = 'switch-notice';
+  notice.textContent = 'Conversation switched';
+
+  var details = document.createElement('div');
+  details.style.fontSize = '10px';
+  details.style.color = '#484f58';
+  details.style.marginTop = '4px';
+
+  var fromSpan = document.createTextNode(truncate(from || '?', 40) + ' \u2192 ' + truncate(to || '?', 40));
+  details.appendChild(fromSpan);
+  notice.appendChild(details);
+
+  eventsWrapEl.appendChild(notice);
+  scrollToBottom();
+}
+
+// --- Boot ---
+connect();
+if (isMobileLayout() && !selectedAgent) openDrawer();
+</script>
+</body>
+</html>

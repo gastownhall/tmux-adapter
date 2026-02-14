@@ -2,6 +2,7 @@ package agents
 
 import (
 	"log"
+	"slices"
 	"strings"
 	"sync"
 
@@ -16,22 +17,25 @@ type RegistryEvent struct {
 
 // Registry tracks live agents and emits lifecycle events.
 type Registry struct {
-	ctrl   *tmux.ControlMode
-	mu     sync.RWMutex
-	agents map[string]Agent // name -> agent
-	events chan RegistryEvent
-	gtDir  string
-	stopCh chan struct{}
+	ctrl         *tmux.ControlMode
+	mu           sync.RWMutex
+	agents       map[string]Agent // name -> agent
+	events       chan RegistryEvent
+	gtDir        string
+	skipSessions []string
+	stopCh       chan struct{}
 }
 
 // NewRegistry creates a new agent registry.
-func NewRegistry(ctrl *tmux.ControlMode, gtDir string) *Registry {
+// skipSessions lists tmux session names to ignore during scanning (e.g., monitor sessions).
+func NewRegistry(ctrl *tmux.ControlMode, gtDir string, skipSessions []string) *Registry {
 	return &Registry{
-		ctrl:   ctrl,
-		agents: make(map[string]Agent),
-		events: make(chan RegistryEvent, 100),
-		gtDir:  gtDir,
-		stopCh: make(chan struct{}),
+		ctrl:         ctrl,
+		agents:       make(map[string]Agent),
+		events:       make(chan RegistryEvent, 100),
+		gtDir:        gtDir,
+		skipSessions: skipSessions,
+		stopCh:       make(chan struct{}),
 	}
 }
 
@@ -77,6 +81,10 @@ func (r *Registry) GetAgent(name string) (Agent, bool) {
 	return a, ok
 }
 
+func (r *Registry) shouldSkip(sessionName string) bool {
+	return slices.Contains(r.skipSessions, sessionName)
+}
+
 func (r *Registry) watchLoop() {
 	for {
 		select {
@@ -106,8 +114,8 @@ func (r *Registry) scan() error {
 			continue
 		}
 
-		// Skip the adapter's own monitor session
-		if sess.Name == "adapter-monitor" {
+		// Skip monitor sessions (e.g., adapter-monitor, converter-monitor)
+		if r.shouldSkip(sess.Name) {
 			continue
 		}
 

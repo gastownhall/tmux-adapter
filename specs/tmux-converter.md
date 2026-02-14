@@ -63,43 +63,25 @@ A single binary with a plugin system. Core handles tmux interaction and WebSocke
 
 ### Selected Architecture: Candidate B (Separate Binary, Shared Library)
 
-**Refinement: Single Binary, Multiple Commands.** We ship a single executable `tmux-adapter`.
-1. `tmux-adapter serve`: Runs the existing adapter service (raw terminal).
-2. `tmux-adapter converter`: Runs the converter service (structured events).
-3. `tmux-adapter start`: **(NEW)** Runs BOTH services in parallel (separate goroutines, separate ports). This is the recommended mode for end-users ("One command to rule them all").
+**Implementation: Two separate binaries.** The adapter is `tmux-adapter` (built from `main.go`), the converter is `tmux-converter` (built from `cmd/tmux-converter/main.go`). Both binaries share the same Go module and `internal/` packages.
 
-**Failure semantics for `start` mode**:
-- Both services must successfully bind their ports during startup. If either fails to start (port conflict, tmux not running, etc.), the entire process exits with an error. No partial startup.
-- After successful startup, if one service's goroutine panics or fatally errors, the entire process exits. The services share a fate in `start` mode. Users who want independent fault isolation should run `serve` and `converter` as separate processes.
-- The `--port` flag applies to the adapter; the converter port defaults to `adapter_port + 1` and can be overridden with `--converter-listen`.
+Each binary has its own ControlMode connection and Registry instance (`adapter-monitor` and `converter-monitor` sessions respectively). This means two independent `tmux -C` sessions and duplicated `scan()` calls on every `%sessions-changed` event. This is intentional — it preserves full isolation between the adapter and converter, avoids shared-state coupling, and tmux handles multiple control clients efficiently.
 
-**Note on shared-process resource usage**: In `start` mode, each service maintains its own ControlMode connection and Registry instance. This means two independent `tmux -C` sessions and duplicated `scan()` calls on every `%sessions-changed` event. This is intentional — it preserves full isolation between the adapter and converter, avoids shared-state coupling, and tmux handles multiple control clients efficiently. If profiling shows the doubled scan traffic is problematic at scale (>50 agents), a shared Registry with event fanout can be introduced as an optimization.
-
-This architecture retains strict code separation (different internal packages, different ports) but simplifies distribution and usage.
-
-Single-port subprocess/IPC mode (where the adapter spawns the converter internally) is explicitly deferred until protocol and operational behavior are stable in production.
+The subcommand approach (single binary with `serve`/`converter`/`start` subcommands) was originally planned but deferred in favor of separate binaries for simplicity. A combined `start` command may be added later.
 
 ---
 
 ## 3. Technical Architecture
 
 ```
-Single binary: tmux-adapter
+Two separate binaries, shared internal packages:
 
-┌────────────────────────────────────────────────────────┐
-│ cmd: start (runs both in parallel)                     │
-│                                                        │
-│   [ Adapter Service :8080 ]   [ Converter Service :8081 ]
-│   (See below)                 (See below)
-└────────────────────────────────────────────────────────┘
-
-tmux-adapter serve (default)               tmux-adapter converter
+tmux-adapter (main.go)                     tmux-converter (cmd/tmux-converter/main.go)
 ┌─────────────────────────┐               ┌──────────────────────────────────┐
-│ cmd: serve (default)    │               │ cmd: converter                   │
 │   └── adapter.New()     │               │   └── converter.New()            │
 │         │               │               │         │                        │
 │  ┌──────┴──────┐        │               │  ┌──────┴──────┐                 │
-│  │ ws.Server   │        │               │  │ ws.Server   │ (JSON-only)     │
+│  │ wsadapter   │        │               │  │ wsconv      │ (JSON-only)     │
 │  │ (JSON+bin)  │        │               │  │             │                 │
 │  ├─────────────┤        │               │  ├─────────────┤                 │
 │  │ PipePaneMgr │        │               │  │ ConvWatcher │ ← file watching │
@@ -117,6 +99,8 @@ tmux-adapter serve (default)               tmux-adapter converter
     │  internal/agents/detect.go   Agent struct,       │
     │                              runtime detection   │
     │  internal/agents/registry.go scan/diff/events    │
+    │  internal/wsbase/auth.go     shared auth logic   │
+    │  internal/wsbase/upgrader.go shared WS upgrade   │
     └──────────────────────────────────────────────────┘
 ```
 
@@ -124,42 +108,42 @@ tmux-adapter serve (default)               tmux-adapter converter
 
 ```
 .
-├── main.go                               # single entrypoint, dispatches to serve/converter subcommands
+├── main.go                               # adapter entrypoint
+├── cmd/tmux-converter/main.go            # converter entrypoint (separate binary)
 ├── internal/
 │   ├── tmux/                          # SHARED: tmux interaction
-│   │   ├── control.go                 # ControlMode (unchanged)
-│   │   ├── commands.go                # tmux operations (unchanged)
-│   │   └── pipepane.go                # PipePaneManager (tmux-adapter only uses this)
+│   │   ├── control.go                 # ControlMode (parameterized session name)
+│   │   ├── commands.go                # tmux operations
+│   │   └── pipepane.go                # PipePaneManager (adapter only)
 │   ├── agents/                        # SHARED: agent detection & registry
-│   │   ├── detect.go                  # Agent struct, process detection (unchanged)
-│   │   └── registry.go               # Registry scan/diff/events (unchanged)
-│   ├── adapter/                       # tmux-adapter wiring (existing, moved)
+│   │   ├── detect.go                  # Agent struct, process detection
+│   │   └── registry.go               # Registry scan/diff/events (accepts skip-list)
+│   ├── adapter/                       # tmux-adapter wiring
 │   │   └── adapter.go
-│   ├── converter/                     # NEW: tmux-converter wiring
-│   │   └── converter.go
-│   ├── conv/                          # NEW: conversation watching & parsing
-│   │   ├── watcher.go                 # ConversationWatcher: per-agent file discovery + tailing
-│   │   ├── tailer.go                  # FileTailer: offset-tracked JSONL/JSON reading
-│   │   ├── buffer.go                  # ConversationBuffer: per-agent event ring buffer
-│   │   ├── discovery.go              # File discovery: workdir + runtime → file path
+│   ├── converter/                     # tmux-converter wiring
+│   │   └── converter.go              # Startup/shutdown orchestration, HTTP mux
+│   ├── conv/                          # Conversation watching & parsing
+│   │   ├── watcher.go                 # ConversationWatcher: discovery + full history + tailing
+│   │   ├── tailer.go                  # JSONL file tailer with fsnotify + poll fallback
+│   │   ├── buffer.go                  # ConversationBuffer: ring buffer (100k events)
+│   │   ├── discovery.go              # Claude file discovery (path encoding: / and _ → -)
 │   │   ├── event.go                   # ConversationEvent: unified event model
-│   │   ├── claude.go                  # Claude Code JSONL parser
-│   │   ├── codex.go                   # Codex JSONL parser
-│   │   └── gemini.go                  # Gemini JSON parser
-│   ├── wsbase/                        # SHARED: auth, origin checks, conn primitives
+│   │   └── claude.go                  # Claude Code JSONL parser
+│   ├── wsbase/                        # SHARED: auth, origin checks
 │   │   ├── auth.go                    # Bearer token + constant-time comparison
-│   │   ├── upgrader.go                # WebSocket upgrade with origin pattern matching
-│   │   └── client.go                  # Base client: conn, send channel, read/write pumps
+│   │   └── upgrader.go                # WebSocket upgrade with origin pattern matching
 │   ├── wsadapter/                     # tmux-adapter protocol (JSON+binary)
-│   │   ├── server.go                  # Adapter-specific server (PipePaneMgr, binary frames)
-│   │   ├── handler.go                 # Existing message routing (unchanged behavior)
-│   │   └── file_upload.go             # Binary 0x04 handling (unchanged)
+│   │   ├── server.go                  # Adapter-specific server
+│   │   ├── handler.go                 # Message routing
+│   │   ├── client.go                  # Per-connection state, read/write pumps
+│   │   └── file_upload.go             # Binary 0x04 handling
 │   └── wsconv/                        # tmux-converter protocol (JSON-only)
-│       ├── server.go                  # Converter-specific server (ConvWatcher, buffers)
-│       └── handler.go                 # Conversation subscribe/filter/resume handlers
-├── web/tmux-adapter-web/              # existing web component
-├── samples/                           # existing samples
-└── Makefile                           # updated for both binaries
+│       └── server.go                  # Converter WS server (snapshot cap: 20k events)
+├── web/tmux-adapter-web/              # embedded web component (adapter)
+├── samples/
+│   ├── adapter.html                   # Adapter dashboard
+│   └── converter.html                 # Converter dashboard
+└── Makefile
 ```
 
 ### External Dependencies
@@ -300,16 +284,14 @@ type ConversationFile struct {
 - `--gemini-root` / `$GEMINI_ROOT` (default: `~/.gemini`)
 
 **Claude Code discovery algorithm**:
-1. Encode workDir: replace all `/` with `-` (preserving leading `-` for the initial `/`)
+1. Encode workDir: replace all `/` with `-` AND all `_` with `-` (preserving leading `-` for the initial `/`). Claude Code's path encoding replaces both characters.
 2. Scan `{claude-root}/projects/{encoded}/` for `*.jsonl` files
-3. Filter: skip files not modified in the last 24 hours (configurable via `--stale-window`)
-4. Sort by mtime descending — most recent is the active conversation
-5. **Collision resolution**: Validate the match by reading the first JSONL line from the most recent file and checking if the `cwd` or `workDir` field matches the agent's workDir exactly. If it does not match, continue to fallback.
-6. **Fallback**: If no validated match via encoded path, scan `{claude-root}/projects/*/` directories. For each, read the first JSONL line of the most recent file and compare `cwd`/`workDir` against the agent's workDir. Select the first exact match. If no exact match, select the longest common path prefix match and log a warning.
-7. Also scan for `agent-*.jsonl` files (subagents)
+3. Sort by mtime descending — most recent is the active conversation
+4. **Full history loading**: The watcher loads ALL conversation files per agent, not just the most recent. Older files are read oldest-first and their events are pre-loaded into the buffer before tailing begins. This gives clients the complete conversation history across session rotations.
+5. Also scan for `agent-*.jsonl` files (subagents)
    - **Constraint**: V1 assumes subagent files reside in the same directory as the main conversation file.
-8. For each subagent file, note `IsSubagent=true`
-9. Return `WatchDirs` = `["{claude-root}/projects/{encoded}/"]` (or the matched directory) for fsnotify on conversation rotation
+6. For each subagent file, note `IsSubagent=true`
+7. Return `WatchDirs` = `["{claude-root}/projects/{encoded}/"]` (or the matched directory) for fsnotify on conversation rotation
 
 **Codex discovery algorithm**:
 1. Compute today's date path: `{codex-root}/sessions/YYYY/MM/DD/`
@@ -538,10 +520,14 @@ type WatcherEvent struct {
 
 3. `startWatching(agent)`:
    a. Look up discoverer for `agent.Runtime`; if no discoverer registered, emit `agent-added` lifecycle event with a log warning and return (see **Unknown runtime handling** below)
-   b. Spawn a goroutine that calls `discoverer.FindConversations(agent.WorkDir)` (async — do not block the event loop)
-   c. On discovery completion: for each file, create isolated `fileStream` (independent Tailer + Parser instance from factory)
-   d. Spawn one goroutine per fileStream using `errgroup`; each goroutine reads tailer lines → parses → merges normalized events into shared conversation buffer → emits to events channel
-   e. If no files found: register fsnotify on `DiscoveryResult.WatchDirs` and retry discovery on timer (default 5s via `--discovery-retry`)
+   b. Spawn a goroutine that calls `discoverer.FindConversations(agent.Name, agent.WorkDir)` (async — do not block the event loop)
+   c. On discovery completion: separate non-subagent files from subagent files. For non-subagent files:
+      - Most recent file (first by mtime) becomes the active conversation
+      - ALL older files are read synchronously oldest-first via `loadHistoricalFile()` — each file is parsed line-by-line and events are tagged with the active conversation ID so they merge into one unified buffer
+      - Historical events are pre-loaded into the buffer before the live tailer starts
+   d. Create isolated `fileStream` for the active file (independent Tailer + Parser instance from factory)
+   e. Also start fileStreams for any subagent files
+   f. If no files found: register fsnotify on `DiscoveryResult.WatchDirs` and retry discovery on timer (default 5s via `--discovery-retry`)
 4. **Directory watch for conversation rotation** (enables `follow-agent`):
    - For each active agent, maintain an `fsnotify.Watcher` on the conversation directory (e.g., `~/.claude/projects/{encoded}/`)
    - On `Create` event for a new `.jsonl` / `.json` file: re-run discovery for that agent
@@ -567,7 +553,7 @@ When an agent is detected with a runtime that has no registered parser (e.g., `c
 
 **Edge cases**:
 - Agent starts before conversation file exists (agent is initializing) — retry discovery with backoff
-- Multiple conversation files for same agent (previous + current session) — tail only the most recent
+- Multiple conversation files for same agent (previous + current sessions) — load ALL as history oldest-first, tail only the most recent for live events
 - Agent restarts (removed then re-added quickly) — stop old tailers, start a fresh active stream; old stream remains only in grace retention until expiry
 - Subagent file appears after main conversation is already being tailed — directory watcher detects new agent-*.jsonl, starts additional tailer
 
@@ -579,7 +565,7 @@ When an agent is detected with a runtime that has no registered parser (e.g., `c
 
 ### 4.6 Conversation Buffer (`internal/conv/buffer.go`)
 
-Per-conversation event ring buffer that supports snapshot + live streaming. Keyed by conversationId (not agent name) to avoid cross-session contamination when agents rotate to new conversations.
+Per-conversation event ring buffer that supports snapshot + live streaming. Keyed by conversationId (not agent name) to avoid cross-session contamination when agents rotate to new conversations. Default capacity: 100,000 events (sufficient for full conversation histories across multiple sessions).
 
 ```go
 type ConversationBuffer struct {
@@ -709,6 +695,8 @@ If protocol version is unsupported, server responds with `{"ok": false, "error":
 
 `follow-agent` auto-subscribes to whichever conversation the agent is currently running and automatically switches when the agent rotates to a new conversation. `subscribe-conversation` locks to a specific conversation ID and never switches.
 
+**Snapshot cap**: Snapshots returned by `follow-agent`, `subscribe-conversation`, and conversation switches are capped at 20,000 events (the most recent 20,000). This prevents oversized WebSocket messages when agents have very long histories. The `totalEvents` field in the response indicates the full buffer size so clients can display "showing last N of M" information.
+
 **Ordering guarantee**: On switch, server emits `conversation-switched`, then `conversation-snapshot` for the new conversation, then live `conversation-event` for the new conversation. Clients see a clean cut: Stream A → Switch Marker → Snapshot B → Stream B.
 
 **`follow-agent` transition logic**:
@@ -798,7 +786,7 @@ type Options struct {
     ListenAddr          string        // e.g. "127.0.0.1:8081"
     AuthToken           string
     OriginPattern       string
-    BufferSize          int           // max events per conversation buffer (default: 1000)
+    BufferSize          int           // max events per conversation buffer (default: 100000)
     StaleWindow         time.Duration // discovery staleness cutoff (default: 24h)
     BufferGracePeriod   time.Duration // removed-stream retention (default: 5m)
     ResumeTimeout       time.Duration // pause timeout after stream-gap (default: 60s)
@@ -860,7 +848,7 @@ type Options struct {
 5. If non-loopback AND `--auth-token` is NOT set AND `--insecure-no-auth` is NOT set: **refuse to start** with error
 
 **Acceptance criteria**:
-- Binary builds and starts with `go build -o tmux-adapter . && ./tmux-adapter converter`
+- Binary builds and starts with `go build -o tmux-converter ./cmd/tmux-converter/ && ./tmux-converter --gt-dir ~/gt`
 - Connects to tmux, discovers agents, starts streaming within 10 seconds of startup
 - Graceful shutdown: no goroutine leaks, all connections closed
 - Health/readiness endpoints respond correctly
@@ -896,92 +884,50 @@ type Options struct {
 
 **Migration strategy**: Phase 1 creates `wsbase/` by extracting from `ws/` and updates `ws/` imports to use `wsbase/`. The existing `ws/` package is renamed to `wsadapter/`. This is a pure refactor with no behavioral changes, verified by existing tests passing. `wsconv/` is created empty in Phase 1 and populated in Phase 3.
 
-**ControlMode sharing**: Both subcommands (running as separate processes) need a tmux -C connection. Options:
-- **Option A**: Each process has its own ControlMode (separate tmux control sessions). Simple, isolated, but two tmux connections.
-- **Option B**: Single ControlMode with IPC between processes. Complex, fragile.
-- **Selected: Option A**. tmux handles multiple control clients fine. The adapter uses `adapter-monitor`, the converter uses `converter-monitor`. Independent, no coordination needed.
+**ControlMode sharing**: Both binaries (running as separate processes) each have their own ControlMode (separate tmux control sessions). tmux handles multiple control clients fine. The adapter uses `adapter-monitor`, the converter uses `converter-monitor`. Independent, no coordination needed.
 
-**Makefile updates**:
-```makefile
-build:
-    go build -o tmux-adapter .
-
-test:
-    go test ./...
-
-check: test vet lint
+**Build**:
+```bash
+go build -o tmux-adapter .
+go build -o tmux-converter ./cmd/tmux-converter/
 ```
-
-**Acceptance criteria**:
-- `make build` produces single `tmux-adapter` binary
-- `tmux-adapter serve` and `tmux-adapter converter` work as separate processes
-- Existing tmux-adapter tests pass with no changes
-- `make test` covers both services
 
 ---
 
 ## 5. Implementation Phases
 
-### Phase 1: Single Binary with Subcommands
+### Phase 1: Foundation (COMPLETE)
 
-**Deliverables**:
-- Refactor `main.go` to dispatch on subcommands: `serve` (default), `converter`, and `start` (runs both).
-- Parameterize `tmux.NewControlMode(sessionName)` — adapter passes `"adapter-monitor"`, converter passes `"converter-monitor"`
-- Update `agents.NewRegistry()` to accept a session skip-list (prevents phantom agent detection of monitor sessions)
-- Move adapter wiring under `internal/adapter/` if not already there
-- Extract `internal/wsbase/` from `internal/ws/` (auth, upgrader, base client) and rename `internal/ws/` to `internal/wsadapter/`. This is a pure refactor verified by existing tests passing. `internal/wsconv/` is created as an empty package.
-- Create stub `internal/converter/converter.go`
-- Update `Makefile`: single binary build, all commands
-- Verify all existing tests pass
+**Deliverables** (all done):
+- Parameterized `tmux.NewControlMode(sessionName)` — adapter passes `"adapter-monitor"`, converter passes `"converter-monitor"`
+- Updated `agents.NewRegistry()` to accept a session skip-list (prevents phantom agent detection of monitor sessions)
+- Extracted `internal/wsbase/` from `internal/ws/` (auth, upgrader) and renamed `internal/ws/` to `internal/wsadapter/`
+- Created `cmd/tmux-converter/main.go` as a separate binary entrypoint
+- Created `internal/converter/converter.go` with full startup/shutdown orchestration
+- All existing adapter tests pass with the `wsbase/` + `wsadapter/` split
 
-**Acceptance criteria**:
-- `make build` produces `tmux-adapter` binary
-- `tmux-adapter start` launches both services (verifiable via logs "adapter listening on :8080", "converter listening on :8081")
-- `tmux-adapter converter` starts and logs "converter starting"
-- `make test` passes — all existing adapter tests pass with `wsbase/` + `wsadapter/` split
-- Existing adapter behavior completely unchanged
-- Neither service's monitor session appears as a detected agent
+### Phase 2: Core Conversation Infrastructure (COMPLETE)
 
-**Risk**: Import paths may need adjustment if main.go referenced internal packages by relative path.
-
-### Phase 2: Core Conversation Infrastructure
-
-**Deliverables**:
+**Deliverables** (all done):
 - `internal/conv/event.go` — unified event model with JSON tags
-- `internal/conv/tailer.go` — JSONL tailer with fsnotify
-- `internal/conv/buffer.go` — ring buffer with snapshot + subscribe
+- `internal/conv/tailer.go` — JSONL tailer with fsnotify + poll fallback
+- `internal/conv/buffer.go` — ring buffer (100k events) with snapshot + subscribe
 - `internal/conv/claude.go` — Claude Code JSONL parser
-- Unit tests for all of the above using real JSONL samples
+- Unit tests for all packages (`buffer_test.go`, `claude_test.go`, `tailer_test.go`, `watcher_test.go`, `discovery_test.go`)
 
-**Acceptance criteria**:
-- Parse real Claude Code JSONL files into ConversationEvent values
-- Tailer follows a file being appended to, produces complete lines
-- Buffer subscribe returns snapshot + live with no gaps
-- All tests pass
+### Phase 3: Discovery + Watcher + WebSocket (COMPLETE)
 
-### Phase 3: Discovery + Watcher + WebSocket
-
-**Deliverables**:
-- `internal/conv/discovery.go` — Claude Code file discovery
-- `internal/conv/watcher.go` — orchestrator connecting registry → discovery → tailer → parser → buffer
-- `internal/wsconv/server.go` + `handler.go` — WebSocket server and message handlers
-- `internal/converter/converter.go` — main wiring
-- Protocol v1 handshake, event filtering, and server-issued opaque cursor resume (built into protocol from day one)
-- `follow-agent` and `subscribe-conversation` subscription modes
-- `samples/converter-debug.html` — simple standalone client to visualize structured events (essential for debugging parsers)
-- **Core observability** (moved here from Phase 5 — parser/discovery bugs are most likely early):
-  - Structured logging with `agent`, `runtime`, `conversationId`, `sourcePath`, `seq` fields
-  - `/metrics` endpoint: `parse_errors_total`, `discovery_failures_total`, `event_latency_ms`, `active_streams`
-- Integration test: start converter, create a mock agent, verify events stream to WebSocket client
-
-**Acceptance criteria**:
-- Agent appears in tmux → conversation events start streaming to connected WebSocket client
-- `subscribe-conversation` and `follow-agent` both return snapshot + live events
-- `follow-agent` emits `conversation-switched` when agent rotates to new conversation
-- Event filtering works (subscribe with types filter, verify excluded events not sent)
-- Resume with opaque cursor replays missed events correctly
-- Agent removed → streaming stops cleanly
-- End-to-end test with real tmux session
+**Deliverables** (all done):
+- `internal/conv/discovery.go` — Claude Code file discovery (path encoding: both `/` and `_` → `-`)
+- `internal/conv/watcher.go` — orchestrator: registry → discovery → full history loading → tailer → parser → buffer
+  - Loads ALL historical conversation files per agent oldest-first (not just most recent)
+  - Cleans up replaced streams on re-discovery (prevents goroutine/FD leaks)
+- `internal/wsconv/server.go` — WebSocket server with protocol handshake, event filtering, snapshot cap (20k events)
+- `internal/converter/converter.go` — full wiring: ControlMode → Registry → Watcher → wsconv.Server → HTTP
+- Protocol v1 handshake, `follow-agent`, `subscribe-conversation`, `subscribe-agents`, `list-agents`, `unsubscribe-agent`
+- Server-side `excludeProgress` / `excludeThinking` filters
+- `samples/converter.html` — dashboard with client-side filtering, render cap (2k DOM elements), server filter toggles
+- HTTP endpoints: `/ws`, `/healthz`, `/readyz`, `/conversations`
 
 ### Phase 4: Multi-Runtime Support
 

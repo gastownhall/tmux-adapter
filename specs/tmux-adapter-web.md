@@ -21,7 +21,7 @@ the tmux-adapter binary protocol needs has been extracted into a
 - Shift+Tab capture (prevent browser focus traversal, send CSI Z)
 - Mobile touch device support: `beforeinput` interception for VKB keystrokes, consumer-controlled VKB via `focusTextarea()`/`blurTextarea()`
 
-The Gastown Dashboard sample (`samples/index.html`) is a consumer of
+The Gastown Dashboard sample (`samples/adapter.html`) is a consumer of
 this component — it handles agent lifecycle UI, WebSocket connection management,
 sidebar, and mobile drawer, while the terminal hosting complexity lives entirely
 inside `<tmux-adapter-web>`.
@@ -61,7 +61,7 @@ tmux-adapter/
 │       ├── file-transfer.js  # Drag-drop + paste upload wiring
 │       └── index.js          # Barrel: auto-registers element, re-exports protocol
 ├── samples/
-│   └── index.html            # Gastown Dashboard sample (imports component from adapter)
+│   └── adapter.html          # Gastown Dashboard sample (imports component from adapter)
 ├── specs/
 ├── Makefile
 └── README.md
@@ -387,7 +387,7 @@ already loaded (ES module singleton behavior). If `init()` hasn't been called,
 ### No Build Step
 
 Vanilla ES modules, no TypeScript, no bundler. Files are authored as `.js` and
-imported directly. This matches the existing `index.html` approach and avoids
+imported directly. This matches the existing `adapter.html` approach and avoids
 build tooling for what is ultimately a few hundred lines of code.
 
 ### Binary Protocol as Separate Export
@@ -422,7 +422,7 @@ the DOM already is an orchestrator.
 The main module. Defines and exports the `TmuxAdapterWeb` class (extends
 `HTMLElement`). Importing `index.js` auto-registers it as `<tmux-adapter-web>`.
 
-| Responsibility | Current `index.html` lines | Approx. lines |
+| Responsibility | Current `adapter.html` lines | Approx. lines |
 |---------------|---------------------------|---------------|
 | `connectedCallback` — terminal creation, event wiring | 634–695 | ~60 |
 | Initial-paint + resize-pending state machine | 462–520, 906–937 | ~60 |
@@ -440,7 +440,7 @@ The main module. Defines and exports the `TmuxAdapterWeb` class (extends
 Terminal fitting with min-cols enforcement and scaleX scaling. Used internally
 by the custom element.
 
-| Responsibility | Current `index.html` lines | Approx. lines |
+| Responsibility | Current `adapter.html` lines | Approx. lines |
 |---------------|---------------------------|---------------|
 | `getTerminalScreen()` | 578–581 | ~5 |
 | `fitTerminal()` with min-cols + scaleX | 583–621 | ~40 |
@@ -451,7 +451,7 @@ by the custom element.
 Drag-drop, paste handling, and binary `0x04` payload construction. Used
 internally by the custom element.
 
-| Responsibility | Current `index.html` lines | Approx. lines |
+| Responsibility | Current `adapter.html` lines | Approx. lines |
 |---------------|---------------------------|---------------|
 | `encodeFilePayload()` — build binary payload | 723–748 | ~25 |
 | `hasFiles()` — DataTransfer check | 750–756 | ~7 |
@@ -463,7 +463,7 @@ internally by the custom element.
 Stateless binary protocol helpers. No terminal or DOM dependency. Usable in
 Node.js or any JS environment.
 
-| Responsibility | Current `index.html` lines | Approx. lines |
+| Responsibility | Current `adapter.html` lines | Approx. lines |
 |---------------|---------------------------|---------------|
 | `encodeBinaryFrame()` (was `sendBinary`) | 803–812 | ~10 |
 | `decodeBinaryFrame()` (was `parseBinaryMessage`) | 814–826 | ~15 |
@@ -487,7 +487,7 @@ registration can import `tmux-adapter-web.js` directly.
 
 ## 6. Consumer Integration
 
-See `samples/index.html` for a complete working example. The sample uses
+See `samples/adapter.html` for a complete working example. The sample uses
 `?adapter=host:port` to dynamically import the component from the adapter and
 connect the WebSocket — one parameter controls everything.
 

@@ -42,9 +42,8 @@ type ControlMode struct {
 }
 
 // NewControlMode creates and starts a tmux control mode connection.
-// It creates an "adapter-monitor" session if needed, then attaches in control mode.
-func NewControlMode() (*ControlMode, error) {
-	sessionName := "adapter-monitor"
+// It creates a session with the given name if needed, then attaches in control mode.
+func NewControlMode(sessionName string) (*ControlMode, error) {
 
 	// Create monitor session if it doesn't exist
 	create := exec.Command("tmux", "-u", "new-session", "-d", "-s", sessionName)
