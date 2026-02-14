@@ -609,10 +609,11 @@ eventsWrapEl.addEventListener('scroll', function() {
 });
 
 function scrollToBottom(instant) {
-  if (autoScroll) {
+  if (!autoScroll) return;
+  requestAnimationFrame(function() {
     eventsWrapEl.style.scrollBehavior = instant ? 'auto' : 'smooth';
     eventsWrapEl.scrollTop = eventsWrapEl.scrollHeight;
-  }
+  });
 }
 
 // --- Mobile drawer ---
