@@ -448,6 +448,65 @@
     margin-right: 4px;
   }
 
+  /* --- Input area --- */
+  .input-area {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid #30363d;
+    background: #161b22;
+    flex-shrink: 0;
+  }
+
+  .input-area.drag-over {
+    border-top: 2px dashed #58a6ff;
+    background: #0d2137;
+  }
+
+  #prompt-input {
+    flex: 1;
+    background: #0d1117;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.5;
+    resize: none;
+    min-height: 36px;
+    max-height: 150px;
+    overflow-y: auto;
+  }
+
+  #prompt-input:focus {
+    outline: none;
+    border-color: #58a6ff;
+  }
+
+  #prompt-input::placeholder {
+    color: #484f58;
+  }
+
+  #send-btn {
+    background: #238636;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  #send-btn:hover { background: #2ea043; }
+  #send-btn:active { background: #1a7f37; }
+  #send-btn.sending { opacity: 0.6; pointer-events: none; }
+
   /* Mobile */
   .mobile-nav-btn,
   .sidebar-close {
@@ -543,6 +602,10 @@
     </div>
     <div class="events-wrap" id="events-wrap">
       <div class="placeholder" id="placeholder">Select an agent from the sidebar</div>
+    </div>
+    <div class="input-area" id="input-area" style="display:none">
+      <textarea id="prompt-input" placeholder="Send a message..." rows="1"></textarea>
+      <button id="send-btn" title="Send (Enter)">Send</button>
     </div>
   </div>
 </div>
@@ -771,6 +834,10 @@ function handleMessage(msg) {
       addSwitchNotice(msg.from, msg.to);
       break;
 
+    case 'send-prompt':
+      if (!msg.ok) console.error('send-prompt error:', msg.error);
+      break;
+
     case 'error':
       console.error('ws error:', msg.error);
       break;
@@ -858,6 +925,7 @@ function selectAgent(name) {
   eventsWrapEl.appendChild(loading);
 
   send({ type: 'follow-agent', agent: name, filter: buildServerFilter() });
+  updateInputArea();
 
   if (isMobileLayout()) closeDrawer();
 }
@@ -878,6 +946,7 @@ function deselectAgent() {
   clearChildren(eventsWrapEl);
   placeholderEl.style.display = '';
   eventsWrapEl.appendChild(placeholderEl);
+  updateInputArea();
 
   renderAgentList();
   if (isMobileLayout()) openDrawer();
@@ -1115,6 +1184,129 @@ function addSwitchNotice(from, to) {
 
   eventsWrapEl.appendChild(notice);
   scrollToBottom();
+}
+
+// --- Input area ---
+var inputAreaEl = document.getElementById('input-area');
+var promptInputEl = document.getElementById('prompt-input');
+var sendBtnEl = document.getElementById('send-btn');
+var textEncoder = new TextEncoder();
+
+function updateInputArea() {
+  inputAreaEl.style.display = selectedAgent ? 'flex' : 'none';
+}
+
+// Auto-resize textarea
+promptInputEl.addEventListener('input', function() {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 150) + 'px';
+});
+
+// Enter to send, Shift+Enter for newline
+promptInputEl.addEventListener('keydown', function(ev) {
+  if (ev.key === 'Enter' && !ev.shiftKey) {
+    ev.preventDefault();
+    sendPrompt();
+  }
+});
+
+sendBtnEl.addEventListener('click', function() {
+  sendPrompt();
+});
+
+function sendPrompt() {
+  var text = promptInputEl.value.trim();
+  if (!text || !selectedAgent) return;
+  send({ type: 'send-prompt', agent: selectedAgent, prompt: text });
+  promptInputEl.value = '';
+  promptInputEl.style.height = 'auto';
+  // Brief visual feedback
+  sendBtnEl.classList.add('sending');
+  setTimeout(function() { sendBtnEl.classList.remove('sending'); }, 500);
+}
+
+// Binary frame encoding (inlined from protocol.js)
+function encodeBinaryFrame(type, agentName, payload) {
+  var nameBytes = textEncoder.encode(agentName);
+  var buf = new Uint8Array(1 + nameBytes.length + 1 + payload.length);
+  buf[0] = type;
+  buf.set(nameBytes, 1);
+  buf[1 + nameBytes.length] = 0;
+  buf.set(payload, 1 + nameBytes.length + 1);
+  return buf;
+}
+
+// File helpers
+function hasFilesDT(dt) {
+  if (!dt || !dt.types) return false;
+  for (var i = 0; i < dt.types.length; i++) {
+    if (dt.types[i] === 'Files') return true;
+  }
+  return false;
+}
+
+var inputDragDepth = 0;
+
+inputAreaEl.addEventListener('dragenter', function(ev) {
+  if (!hasFilesDT(ev.dataTransfer)) return;
+  ev.preventDefault();
+  inputDragDepth++;
+  inputAreaEl.classList.add('drag-over');
+});
+
+inputAreaEl.addEventListener('dragover', function(ev) {
+  if (!hasFilesDT(ev.dataTransfer)) return;
+  ev.preventDefault();
+  if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
+});
+
+inputAreaEl.addEventListener('dragleave', function(ev) {
+  ev.preventDefault();
+  inputDragDepth = Math.max(0, inputDragDepth - 1);
+  if (inputDragDepth === 0) inputAreaEl.classList.remove('drag-over');
+});
+
+inputAreaEl.addEventListener('drop', function(ev) {
+  ev.preventDefault();
+  inputDragDepth = 0;
+  inputAreaEl.classList.remove('drag-over');
+  if (!hasFilesDT(ev.dataTransfer)) return;
+  uploadFiles(ev.dataTransfer.files);
+});
+
+// Clipboard paste for files
+inputAreaEl.addEventListener('paste', function(ev) {
+  var files = ev.clipboardData && ev.clipboardData.files;
+  if (!files || files.length === 0) return;
+  ev.preventDefault();
+  uploadFiles(files);
+});
+
+async function uploadFiles(files) {
+  if (!files || files.length === 0 || !selectedAgent) return;
+  var maxUpload = 8 * 1024 * 1024;
+  for (var i = 0; i < files.length; i++) {
+    var file = files[i];
+    if (!file) continue;
+    if (file.size > maxUpload) {
+      console.warn('skipping oversized file', file.name, file.size);
+      continue;
+    }
+    var fileBytes = new Uint8Array(await file.arrayBuffer());
+    var nameBytes = textEncoder.encode(file.name || 'attachment.bin');
+    var mimeBytes = textEncoder.encode(file.type || 'application/octet-stream');
+    var payload = new Uint8Array(nameBytes.length + 1 + mimeBytes.length + 1 + fileBytes.length);
+    payload.set(nameBytes, 0);
+    payload[nameBytes.length] = 0;
+    payload.set(mimeBytes, nameBytes.length + 1);
+    payload[nameBytes.length + 1 + mimeBytes.length] = 0;
+    payload.set(fileBytes, nameBytes.length + 1 + mimeBytes.length + 1);
+    var frame = encodeBinaryFrame(0x04, selectedAgent, payload);
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(frame);
+      console.log('file uploaded:', file.name, file.size, 'bytes');
+    }
+  }
 }
 
 // --- Boot ---

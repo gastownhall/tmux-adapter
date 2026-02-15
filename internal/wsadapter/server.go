@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/gastownhall/tmux-adapter/internal/agentio"
 	"github.com/gastownhall/tmux-adapter/internal/agents"
 	"github.com/gastownhall/tmux-adapter/internal/tmux"
 	"github.com/gastownhall/tmux-adapter/internal/wsbase"
@@ -17,6 +18,7 @@ type Server struct {
 	registry       *agents.Registry
 	pipeMgr        *tmux.PipePaneManager
 	ctrl           *tmux.ControlMode
+	prompter       *agentio.Prompter
 	authToken      string
 	originPatterns []string
 	clients        map[*Client]struct{}
@@ -29,6 +31,7 @@ func NewServer(registry *agents.Registry, pipeMgr *tmux.PipePaneManager, ctrl *t
 		registry:       registry,
 		pipeMgr:        pipeMgr,
 		ctrl:           ctrl,
+		prompter:       agentio.NewPrompter(ctrl, registry),
 		authToken:      strings.TrimSpace(authToken),
 		originPatterns: originPatterns,
 		clients:        make(map[*Client]struct{}),
@@ -46,7 +49,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	conn.SetReadLimit(int64(maxFileUploadBytes + 64*1024))
+	conn.SetReadLimit(int64(agentio.MaxFileUploadBytes + 64*1024))
 
 	ctx, cancel := context.WithCancel(r.Context())
 	client := NewClient(conn, s, ctx, cancel)

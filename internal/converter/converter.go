@@ -69,7 +69,7 @@ func (c *Converter) Start() error {
 	log.Println("converter: conversation watcher started")
 
 	// Set up WebSocket server
-	c.wsSrv = wsconv.NewServer(c.watcher, "", []string{"*"})
+	c.wsSrv = wsconv.NewServer(c.watcher, "", []string{"*"}, c.ctrl, c.registry)
 
 	// Forward watcher events to WebSocket broadcast
 	go func() {

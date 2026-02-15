@@ -1,15 +1,14 @@
 package wsadapter
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/gastownhall/tmux-adapter/internal/agentio"
 	"github.com/gastownhall/tmux-adapter/internal/agents"
 )
 
@@ -35,30 +34,6 @@ type Response struct {
 	Data    string         `json:"data,omitempty"`
 }
 
-// Binary protocol message types
-const (
-	BinaryTerminalOutput   byte = 0x01 // server → client: terminal output
-	BinaryKeyboardInput    byte = 0x02 // client → server: keyboard input
-	BinaryResize           byte = 0x03 // client → server: resize
-	BinaryFileUpload       byte = 0x04 // client → server: file upload for paste
-	BinaryTerminalSnapshot byte = 0x05 // server → client: terminal snapshot/refresh
-)
-
-// Per-agent mutexes for send-prompt serialization.
-var (
-	nudgeLocks   = make(map[string]*sync.Mutex)
-	nudgeLocksMu sync.Mutex
-)
-
-func getNudgeLock(agent string) *sync.Mutex {
-	nudgeLocksMu.Lock()
-	defer nudgeLocksMu.Unlock()
-	if _, ok := nudgeLocks[agent]; !ok {
-		nudgeLocks[agent] = &sync.Mutex{}
-	}
-	return nudgeLocks[agent]
-}
-
 // handleMessage routes a text request to the appropriate handler.
 func handleMessage(c *Client, req Request) {
 	switch req.Type {
@@ -82,19 +57,19 @@ func handleMessage(c *Client, req Request) {
 // handleBinaryMessage routes binary WebSocket frames.
 // Format: msgType(1 byte) + agentName + \0 + payload
 func handleBinaryMessage(c *Client, data []byte) {
-	msgType, agentName, payload, err := parseBinaryEnvelope(data)
+	msgType, agentName, payload, err := agentio.ParseBinaryEnvelope(data)
 	if err != nil {
 		c.sendError("", "invalid binary message: "+err.Error())
 		return
 	}
 
 	switch msgType {
-	case BinaryKeyboardInput:
+	case agentio.BinaryKeyboardInput:
 		if err := sendKeyboardPayload(c, agentName, payload); err != nil {
 			log.Printf("keyboard input %s error: %v", agentName, err)
 			c.sendError("", "keyboard input "+agentName+": "+err.Error())
 		}
-	case BinaryResize:
+	case agentio.BinaryResize:
 		parts := strings.SplitN(string(payload), ":", 2)
 		if len(parts) != 2 {
 			c.sendError("", "invalid resize payload for "+agentName+": expected cols:rows")
@@ -117,14 +92,14 @@ func handleBinaryMessage(c *Client, data []byte) {
 			return
 		}
 		// No snapshot needed — pipe-pane captures the app's SIGWINCH redraw naturally.
-	case BinaryFileUpload:
+	case agentio.BinaryFileUpload:
 		payloadCopy := append([]byte(nil), payload...)
 		go func() {
-			lock := getNudgeLock(agentName)
+			lock := c.server.prompter.GetLock(agentName)
 			lock.Lock()
 			defer lock.Unlock()
 
-			if err := handleBinaryFileUpload(c, agentName, payloadCopy); err != nil {
+			if err := c.server.prompter.HandleFileUpload(agentName, payloadCopy); err != nil {
 				log.Printf("file upload %s error: %v", agentName, err)
 				c.sendError("", "file upload "+agentName+": "+err.Error())
 			}
@@ -133,26 +108,6 @@ func handleBinaryMessage(c *Client, data []byte) {
 		log.Printf("unknown binary message type: 0x%02x", msgType)
 		c.sendError("", fmt.Sprintf("unknown binary message type: 0x%02x", msgType))
 	}
-}
-
-func parseBinaryEnvelope(data []byte) (msgType byte, agentName string, payload []byte, err error) {
-	if len(data) < 3 {
-		return 0, "", nil, fmt.Errorf("frame too short")
-	}
-
-	msgType = data[0]
-	rest := data[1:]
-	idx := bytes.IndexByte(rest, 0)
-	if idx < 0 {
-		return 0, "", nil, fmt.Errorf("missing agent separator")
-	}
-	if idx == 0 {
-		return 0, "", nil, fmt.Errorf("missing agent name")
-	}
-
-	agentName = string(rest[:idx])
-	payload = rest[idx+1:]
-	return msgType, agentName, payload, nil
 }
 
 func sendKeyboardPayload(c *Client, agentName string, payload []byte) error {
@@ -220,17 +175,6 @@ func tmuxKeyNameFromVT(payload []byte) (string, bool) {
 	return "", false
 }
 
-
-// makeBinaryFrame builds a binary frame: msgType + agentName + \0 + payload
-func makeBinaryFrame(msgType byte, agentName string, payload []byte) []byte {
-	frame := make([]byte, 0, 1+len(agentName)+1+len(payload))
-	frame = append(frame, msgType)
-	frame = append(frame, []byte(agentName)...)
-	frame = append(frame, 0)
-	frame = append(frame, payload...)
-	return frame
-}
-
 func handleListAgents(c *Client, req Request) {
 	agentList := c.server.registry.GetAgents()
 	c.sendJSON(Response{
@@ -250,74 +194,27 @@ func handleSendPrompt(c *Client, req Request) {
 		return
 	}
 
-	// Verify agent exists
-	agent, ok := c.server.registry.GetAgent(req.Agent)
-	if !ok {
+	// Verify agent exists before acquiring lock
+	if _, ok := c.server.registry.GetAgent(req.Agent); !ok {
 		ok := false
 		c.sendJSON(Response{ID: req.ID, Type: "send-prompt", OK: &ok, Error: "agent not found"})
 		return
 	}
 
-	// Serialize sends to this agent
-	lock := getNudgeLock(req.Agent)
+	lock := c.server.prompter.GetLock(req.Agent)
 
 	go func() {
 		lock.Lock()
 		defer lock.Unlock()
 
-		session := agent.Name
-
-		// 1. Send text in literal mode
-		if err := c.server.ctrl.SendKeysLiteral(session, req.Prompt); err != nil {
+		if err := c.server.prompter.SendPrompt(req.Agent, req.Prompt); err != nil {
 			ok := false
 			c.sendJSON(Response{ID: req.ID, Type: "send-prompt", OK: &ok, Error: err.Error()})
 			return
 		}
 
-		// 2. Wait 500ms for paste to complete
-		time.Sleep(500 * time.Millisecond)
-
-		// 3. Send Escape (for vim mode)
-		if err := c.server.ctrl.SendKeysRaw(session, "Escape"); err != nil {
-			ok := false
-			c.sendJSON(Response{ID: req.ID, Type: "send-prompt", OK: &ok, Error: "send Escape: " + err.Error()})
-			return
-		}
-		time.Sleep(100 * time.Millisecond)
-
-		// 4. Send Enter with 3x retry, 200ms backoff
-		var lastErr error
-		for attempt := 0; attempt < 3; attempt++ {
-			if attempt > 0 {
-				time.Sleep(200 * time.Millisecond)
-			}
-			if err := c.server.ctrl.SendKeysRaw(session, "Enter"); err != nil {
-				lastErr = err
-				continue
-			}
-
-			// 5. Wake detached sessions via SIGWINCH resize dance
-			if !agent.Attached {
-				if err := c.server.ctrl.ResizePane(session, "-1"); err != nil {
-					log.Printf("send-prompt(%s): wake shrink resize failed: %v", session, err)
-				}
-				time.Sleep(50 * time.Millisecond)
-				if err := c.server.ctrl.ResizePane(session, "+1"); err != nil {
-					log.Printf("send-prompt(%s): wake restore resize failed: %v", session, err)
-				}
-			}
-
-			ok := true
-			c.sendJSON(Response{ID: req.ID, Type: "send-prompt", OK: &ok})
-			return
-		}
-
-		ok := false
-		errMsg := "failed to send Enter after 3 attempts"
-		if lastErr != nil {
-			errMsg += ": " + lastErr.Error()
-		}
-		c.sendJSON(Response{ID: req.ID, Type: "send-prompt", OK: &ok, Error: errMsg})
+		ok := true
+		c.sendJSON(Response{ID: req.ID, Type: "send-prompt", OK: &ok})
 	}()
 }
 
@@ -403,12 +300,12 @@ func handleSubscribeOutput(c *Client, req Request) {
 		// Send a minimal 0x05 (clear screen) to trigger the client's reset+reveal.
 		// The actual content comes from pipe-pane data buffered in ch.
 		log.Printf("subscribe-output(%s): sending 0x05 clear-screen trigger", req.Agent)
-		c.SendBinary(makeBinaryFrame(BinaryTerminalSnapshot, req.Agent, []byte("\x1b[2J\x1b[H")))
+		c.SendBinary(agentio.MakeBinaryFrame(agentio.BinaryTerminalSnapshot, req.Agent, []byte("\x1b[2J\x1b[H")))
 
 		// Stream raw bytes in background — immediately flushes buffered pipe-pane data.
 		go func() {
 			for rawBytes := range ch {
-				c.SendBinary(makeBinaryFrame(BinaryTerminalOutput, req.Agent, rawBytes))
+				c.SendBinary(agentio.MakeBinaryFrame(agentio.BinaryTerminalOutput, req.Agent, rawBytes))
 			}
 		}()
 	} else {

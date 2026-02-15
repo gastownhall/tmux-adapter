@@ -3,13 +3,18 @@ package wsconv
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 	"sync"
 	"time"
 
 	"nhooyr.io/websocket"
 
+	"github.com/gastownhall/tmux-adapter/internal/agentio"
+	"github.com/gastownhall/tmux-adapter/internal/agents"
 	"github.com/gastownhall/tmux-adapter/internal/conv"
+	"github.com/gastownhall/tmux-adapter/internal/tmux"
 	"github.com/gastownhall/tmux-adapter/internal/wsbase"
 )
 
@@ -19,6 +24,9 @@ const maxSnapshotEvents = 20000
 // Server manages WebSocket connections for the converter service.
 type Server struct {
 	watcher        *conv.ConversationWatcher
+	ctrl           *tmux.ControlMode
+	registry       *agents.Registry
+	prompter       *agentio.Prompter
 	authToken      string
 	originPatterns []string
 	clients        map[*Client]struct{}
@@ -26,9 +34,12 @@ type Server struct {
 }
 
 // NewServer creates a new converter WebSocket server.
-func NewServer(watcher *conv.ConversationWatcher, authToken string, originPatterns []string) *Server {
+func NewServer(watcher *conv.ConversationWatcher, authToken string, originPatterns []string, ctrl *tmux.ControlMode, registry *agents.Registry) *Server {
 	return &Server{
 		watcher:        watcher,
+		ctrl:           ctrl,
+		registry:       registry,
+		prompter:       agentio.NewPrompter(ctrl, registry),
 		authToken:      authToken,
 		originPatterns: originPatterns,
 		clients:        make(map[*Client]struct{}),
@@ -46,6 +57,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	conn.SetReadLimit(int64(agentio.MaxFileUploadBytes + 64*1024))
 
 	client := newClient(conn, s)
 	s.addClient(client)
@@ -123,11 +135,17 @@ func (s *Server) removeClient(c *Client) {
 	c.cleanup()
 }
 
+// outMsg wraps a WebSocket message with its type (text or binary).
+type outMsg struct {
+	typ  websocket.MessageType
+	data []byte
+}
+
 // Client represents a connected WebSocket client.
 type Client struct {
 	conn     *websocket.Conn
 	server   *Server
-	send     chan []byte
+	send     chan outMsg
 	ctx      context.Context
 	cancel   context.CancelFunc
 	mu       sync.Mutex
@@ -152,7 +170,7 @@ func newClient(conn *websocket.Conn, server *Server) *Client {
 	return &Client{
 		conn:    conn,
 		server:  server,
-		send:    make(chan []byte, 256),
+		send:    make(chan outMsg, 256),
 		ctx:     ctx,
 		cancel:  cancel,
 		subs:    make(map[string]*subscription),
@@ -168,11 +186,15 @@ func (c *Client) run() {
 func (c *Client) readPump() {
 	defer c.cancel()
 	for {
-		_, data, err := c.conn.Read(c.ctx)
+		typ, data, err := c.conn.Read(c.ctx)
 		if err != nil {
 			return
 		}
-		c.handleMessage(data)
+		if typ == websocket.MessageBinary {
+			c.handleBinaryMessage(data)
+			continue
+		}
+		c.handleTextMessage(data)
 	}
 }
 
@@ -187,7 +209,7 @@ func (c *Client) writePump() {
 				return
 			}
 			ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
-			err := c.conn.Write(ctx, websocket.MessageText, msg)
+			err := c.conn.Write(ctx, msg.typ, msg.data)
 			cancel()
 			if err != nil {
 				return
@@ -202,13 +224,37 @@ func (c *Client) sendJSON(v any) {
 		return
 	}
 	select {
-	case c.send <- data:
+	case c.send <- outMsg{typ: websocket.MessageText, data: data}:
 	default:
 		// Slow consumer — drop
 	}
 }
 
-func (c *Client) handleMessage(data []byte) {
+func (c *Client) handleBinaryMessage(data []byte) {
+	msgType, agentName, payload, err := agentio.ParseBinaryEnvelope(data)
+	if err != nil {
+		c.sendJSON(serverMessage{Type: "error", Error: "invalid binary message: " + err.Error()})
+		return
+	}
+
+	switch msgType {
+	case agentio.BinaryFileUpload:
+		payloadCopy := append([]byte(nil), payload...)
+		go func() {
+			lock := c.server.prompter.GetLock(agentName)
+			lock.Lock()
+			defer lock.Unlock()
+			if err := c.server.prompter.HandleFileUpload(agentName, payloadCopy); err != nil {
+				log.Printf("file upload %s error: %v", agentName, err)
+				c.sendJSON(serverMessage{Type: "error", Error: "file upload " + agentName + ": " + err.Error()})
+			}
+		}()
+	default:
+		c.sendJSON(serverMessage{Type: "error", Error: fmt.Sprintf("unsupported binary message type: 0x%02x", msgType)})
+	}
+}
+
+func (c *Client) handleTextMessage(data []byte) {
 	var msg clientMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
 		c.sendJSON(serverMessage{Type: "error", Error: "invalid JSON"})
@@ -241,6 +287,8 @@ func (c *Client) handleMessage(data []byte) {
 		c.handleUnsubscribe(msg)
 	case "unsubscribe-agent":
 		c.handleUnsubscribeAgent(msg)
+	case "send-prompt":
+		c.handleSendPrompt(msg)
 	default:
 		c.sendJSON(serverMessage{ID: msg.ID, Type: "error", Error: "unknown message type", UnknownType: msg.Type})
 	}
@@ -474,11 +522,37 @@ func (c *Client) handleUnsubscribeAgent(msg clientMessage) {
 	c.sendJSON(serverMessage{ID: msg.ID, Type: "unsubscribe-agent", OK: boolPtr(true)})
 }
 
+func (c *Client) handleSendPrompt(msg clientMessage) {
+	if msg.Agent == "" {
+		c.sendJSON(serverMessage{ID: msg.ID, Type: "error", Error: "agent field required"})
+		return
+	}
+	if msg.Prompt == "" {
+		c.sendJSON(serverMessage{ID: msg.ID, Type: "error", Error: "prompt field required"})
+		return
+	}
+
+	lock := c.server.prompter.GetLock(msg.Agent)
+	go func() {
+		lock.Lock()
+		defer lock.Unlock()
+
+		if err := c.server.prompter.SendPrompt(msg.Agent, msg.Prompt); err != nil {
+			c.sendJSON(serverMessage{ID: msg.ID, Type: "send-prompt", OK: boolPtr(false), Error: err.Error()})
+			return
+		}
+		c.sendJSON(serverMessage{ID: msg.ID, Type: "send-prompt", OK: boolPtr(true)})
+	}()
+}
+
 func (c *Client) deliverConversationEvent(event *conv.ConversationEvent) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	for _, sub := range c.subs {
+		if sub.live != nil {
+			continue // already delivered via streamLiveWithContext
+		}
 		if sub.conversationID == event.ConversationID && sub.filter.Matches(*event) {
 			cursor := conv.Cursor{
 				ConversationID: event.ConversationID,
@@ -649,6 +723,7 @@ type clientMessage struct {
 	Protocol       string           `json:"protocol,omitempty"`
 	ConversationID string           `json:"conversationId,omitempty"`
 	Agent          string           `json:"agent,omitempty"`
+	Prompt         string           `json:"prompt,omitempty"`
 	SubscriptionID string           `json:"subscriptionId,omitempty"`
 	Filter         *clientFilter    `json:"filter,omitempty"`
 	Cursor         string           `json:"cursor,omitempty"`
