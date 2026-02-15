@@ -142,6 +142,8 @@ func (cm *ControlMode) PasteBuffer(target string) error {
 }
 
 // PasteBytes loads data into tmux's buffer and pastes it into the target.
+// Uses a uniquely named buffer to avoid races when multiple control-mode
+// connections share the same tmux server.
 func (cm *ControlMode) PasteBytes(target string, data []byte) error {
 	if len(data) == 0 {
 		return nil
@@ -167,10 +169,27 @@ func (cm *ControlMode) PasteBytes(target string, data []byte) error {
 		return fmt.Errorf("close temp buffer file: %w", err)
 	}
 
-	if err := cm.LoadBufferFromFile(f.Name()); err != nil {
+	// Use a unique buffer name so concurrent control-mode connections
+	// (e.g. adapter + converter) don't clobber each other's paste buffers.
+	bufName := fmt.Sprintf("ta-%d", time.Now().UnixNano())
+
+	if err := cm.loadBufferNamed(f.Name(), bufName); err != nil {
 		return err
 	}
-	return cm.PasteBuffer(target)
+	return cm.pasteBufferNamed(target, bufName)
+}
+
+func (cm *ControlMode) loadBufferNamed(path, bufName string) error {
+	_, err := cm.Execute(fmt.Sprintf("load-buffer -w -b %s %s", bufName, shellQuote(path)))
+	if err != nil && strings.Contains(err.Error(), "unknown flag") {
+		_, err = cm.Execute(fmt.Sprintf("load-buffer -b %s %s", bufName, shellQuote(path)))
+	}
+	return err
+}
+
+func (cm *ControlMode) pasteBufferNamed(target, bufName string) error {
+	_, err := cm.Execute(fmt.Sprintf("paste-buffer -d -b %s -t '%s'", bufName, target))
+	return err
 }
 
 func (cm *ControlMode) sendKeysHex(target string, data []byte) error {

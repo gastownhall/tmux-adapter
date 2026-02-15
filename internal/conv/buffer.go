@@ -1,6 +1,7 @@
 package conv
 
 import (
+	"log"
 	"sync"
 )
 
@@ -49,7 +50,7 @@ func (b *ConversationBuffer) Append(event ConversationEvent) {
 			select {
 			case ch <- event:
 			default:
-				// Slow consumer — drop event
+				log.Printf("buffer %s: dropped event seq=%d type=%s to slow subscriber", b.conversationID[:min(8, len(b.conversationID))], event.Seq, event.Type)
 			}
 		}
 	}

@@ -90,20 +90,20 @@ func TestBuildPastePayload(t *testing.T) {
 		largeText[i] = 'a'
 	}
 	gotLarge := BuildPastePayload(savedPath, pastePath, "text/plain", largeText)
-	if string(gotLarge) != pastePath {
-		t.Fatalf("large text payload = %q, want %q", string(gotLarge), pastePath)
+	if string(gotLarge) != pastePath+" " {
+		t.Fatalf("large text payload = %q, want %q", string(gotLarge), pastePath+" ")
 	}
 
 	binaryData := []byte{0x00, 0x01, 0x02}
 	gotBinary := BuildPastePayload(savedPath, pastePath, "application/octet-stream", binaryData)
-	if string(gotBinary) != pastePath {
-		t.Fatalf("binary payload = %q, want %q", string(gotBinary), pastePath)
+	if string(gotBinary) != pastePath+" " {
+		t.Fatalf("binary payload = %q, want %q", string(gotBinary), pastePath+" ")
 	}
 
 	imgData := []byte{0x89, 0x50, 0x4E, 0x47} // PNG header bytes
 	gotImg := BuildPastePayload(savedPath, pastePath, "image/png", imgData)
-	if string(gotImg) != savedPath {
-		t.Fatalf("image payload = %q, want absolute path %q", string(gotImg), savedPath)
+	if string(gotImg) != savedPath+" " {
+		t.Fatalf("image payload = %q, want absolute path %q", string(gotImg), savedPath+" ")
 	}
 }
 

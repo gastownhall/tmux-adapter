@@ -451,17 +451,90 @@
   /* --- Input area --- */
   .input-area {
     display: flex;
-    align-items: flex-end;
-    gap: 8px;
-    padding: 12px 16px;
+    flex-direction: column;
+    gap: 0;
+    padding: 0;
     border-top: 1px solid #30363d;
     background: #161b22;
     flex-shrink: 0;
   }
 
-  .input-area.drag-over {
-    border-top: 2px dashed #58a6ff;
+  .main.drag-over .events-wrap {
     background: #0d2137;
+    outline: 2px dashed #58a6ff;
+    outline-offset: -2px;
+  }
+
+  /* Attachment strip */
+  .attachments {
+    display: flex;
+    gap: 8px;
+    padding: 10px 16px 0;
+    flex-wrap: wrap;
+  }
+
+  .attachment-thumb {
+    position: relative;
+    width: 64px;
+    height: 64px;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid #30363d;
+    cursor: pointer;
+    background: #0d1117;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .attachment-thumb:hover { border-color: #58a6ff; }
+
+  .attachment-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .attachment-thumb .file-icon {
+    font-size: 11px;
+    color: #8b949e;
+    text-align: center;
+    padding: 4px;
+    word-break: break-all;
+    line-height: 1.2;
+    overflow: hidden;
+    max-height: 100%;
+  }
+
+  .attachment-remove {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: rgba(248, 81, 73, 0.9);
+    color: #fff;
+    border: none;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    opacity: 0;
+    transition: opacity 0.1s;
+  }
+
+  .attachment-thumb:hover .attachment-remove { opacity: 1; }
+
+  .input-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 12px 16px;
   }
 
   #prompt-input {
@@ -506,6 +579,39 @@
   #send-btn:hover { background: #2ea043; }
   #send-btn:active { background: #1a7f37; }
   #send-btn.sending { opacity: 0.6; pointer-events: none; }
+
+  /* Lightbox */
+  .lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(1, 4, 9, 0.85);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+
+  .lightbox img {
+    max-width: 90vw;
+    max-height: 90vh;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  }
+
+  .lightbox .file-preview {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 24px 32px;
+    color: #c9d1d9;
+    font-size: 14px;
+    text-align: center;
+    max-width: 400px;
+  }
+
+  .lightbox .file-preview .filename { font-weight: 600; margin-bottom: 8px; }
+  .lightbox .file-preview .filesize { color: #8b949e; font-size: 12px; }
 
   /* Mobile */
   .mobile-nav-btn,
@@ -604,8 +710,11 @@
       <div class="placeholder" id="placeholder">Select an agent from the sidebar</div>
     </div>
     <div class="input-area" id="input-area" style="display:none">
-      <textarea id="prompt-input" placeholder="Send a message..." rows="1"></textarea>
-      <button id="send-btn" title="Send (Enter)">Send</button>
+      <div class="attachments" id="attachments"></div>
+      <div class="input-row">
+        <textarea id="prompt-input" placeholder="Send a message..." rows="1"></textarea>
+        <button id="send-btn" title="Send (Enter)">Send</button>
+      </div>
     </div>
   </div>
 </div>
@@ -908,6 +1017,7 @@ function selectAgent(name) {
   currentSubId = null;
   eventStore = [];
   liveEventCount = 0;
+  clearAttachments();
   renderAgentList();
   updateHeader();
   showEventsPanel();
@@ -938,6 +1048,7 @@ function deselectAgent() {
   currentConvId = null;
   currentSubId = null;
   eventStore = [];
+  clearAttachments();
 
   clearChildren(headerContentEl);
   headerContentEl.textContent = 'Select an agent to view conversation';
@@ -1188,9 +1299,13 @@ function addSwitchNotice(from, to) {
 
 // --- Input area ---
 var inputAreaEl = document.getElementById('input-area');
+var attachmentsEl = document.getElementById('attachments');
 var promptInputEl = document.getElementById('prompt-input');
 var sendBtnEl = document.getElementById('send-btn');
 var textEncoder = new TextEncoder();
+var attachments = []; // queued files: { id, file, url }
+var nextAttachId = 0;
+var maxUploadBytes = 8 * 1024 * 1024;
 
 function updateInputArea() {
   inputAreaEl.style.display = selectedAgent ? 'flex' : 'none';
@@ -1206,22 +1321,159 @@ promptInputEl.addEventListener('input', function() {
 promptInputEl.addEventListener('keydown', function(ev) {
   if (ev.key === 'Enter' && !ev.shiftKey) {
     ev.preventDefault();
-    sendPrompt();
+    sendAll();
   }
 });
 
-sendBtnEl.addEventListener('click', function() {
-  sendPrompt();
-});
+sendBtnEl.addEventListener('click', function() { sendAll(); });
 
-function sendPrompt() {
+// --- Attachment queue ---
+function queueFiles(files) {
+  if (!files || !selectedAgent) return;
+  for (var i = 0; i < files.length; i++) {
+    var file = files[i];
+    if (!file) continue;
+    if (file.size > maxUploadBytes) {
+      console.warn('skipping oversized file', file.name, file.size);
+      continue;
+    }
+    var url = file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
+    attachments.push({ id: ++nextAttachId, file: file, url: url });
+  }
+  renderAttachments();
+}
+
+function removeAttachment(id) {
+  var idx = attachments.findIndex(function(a) { return a.id === id; });
+  if (idx < 0) return;
+  if (attachments[idx].url) URL.revokeObjectURL(attachments[idx].url);
+  attachments.splice(idx, 1);
+  renderAttachments();
+}
+
+function clearAttachments() {
+  attachments.forEach(function(a) { if (a.url) URL.revokeObjectURL(a.url); });
+  attachments = [];
+  renderAttachments();
+}
+
+function renderAttachments() {
+  while (attachmentsEl.firstChild) attachmentsEl.removeChild(attachmentsEl.firstChild);
+  attachmentsEl.style.display = attachments.length ? 'flex' : 'none';
+  attachments.forEach(function(att) {
+    var thumb = document.createElement('div');
+    thumb.className = 'attachment-thumb';
+    thumb.addEventListener('click', function(ev) {
+      if (ev.target.classList.contains('attachment-remove')) return;
+      showLightbox(att);
+    });
+
+    if (att.url) {
+      var img = document.createElement('img');
+      img.src = att.url;
+      img.alt = att.file.name;
+      thumb.appendChild(img);
+    } else {
+      var icon = document.createElement('div');
+      icon.className = 'file-icon';
+      icon.textContent = att.file.name;
+      thumb.appendChild(icon);
+    }
+
+    var removeBtn = document.createElement('button');
+    removeBtn.className = 'attachment-remove';
+    removeBtn.textContent = '\u00d7';
+    removeBtn.title = 'Remove';
+    removeBtn.addEventListener('click', function(ev) {
+      ev.stopPropagation();
+      removeAttachment(att.id);
+    });
+    thumb.appendChild(removeBtn);
+
+    attachmentsEl.appendChild(thumb);
+  });
+}
+
+// --- Lightbox ---
+function showLightbox(att) {
+  var overlay = document.createElement('div');
+  overlay.className = 'lightbox';
+  function dismiss() { overlay.remove(); document.removeEventListener('keydown', onKey); }
+  function onKey(ev) { if (ev.key === 'Escape') dismiss(); }
+  overlay.addEventListener('click', dismiss);
+  document.addEventListener('keydown', onKey);
+
+  if (att.url) {
+    var img = document.createElement('img');
+    img.src = att.url;
+    img.alt = att.file.name;
+    overlay.appendChild(img);
+  } else {
+    var box = document.createElement('div');
+    box.className = 'file-preview';
+    var fname = document.createElement('div');
+    fname.className = 'filename';
+    fname.textContent = att.file.name;
+    box.appendChild(fname);
+    var fsize = document.createElement('div');
+    fsize.className = 'filesize';
+    fsize.textContent = formatFileSize(att.file.size) + ' \u2022 ' + (att.file.type || 'unknown type');
+    box.appendChild(fsize);
+    overlay.appendChild(box);
+  }
+
+  document.body.appendChild(overlay);
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+// --- Send: queued attachments first, then text prompt ---
+// Files must be sent BEFORE the text prompt because the server's per-agent
+// lock serializes operations: file uploads paste content into the terminal,
+// then send-prompt types the text and presses Enter. If reversed, the prompt
+// would be submitted before the files are pasted.
+async function sendAll() {
   var text = promptInputEl.value.trim();
-  if (!text || !selectedAgent) return;
-  send({ type: 'send-prompt', agent: selectedAgent, prompt: text });
+  var hasText = text.length > 0;
+  var hasFiles = attachments.length > 0;
+  if ((!hasText && !hasFiles) || !selectedAgent) return;
+
+  // Clear UI immediately
   promptInputEl.value = '';
   promptInputEl.style.height = 'auto';
-  // Brief visual feedback
   sendBtnEl.classList.add('sending');
+
+  var toSend = hasFiles ? attachments.slice() : [];
+  if (hasFiles) clearAttachments();
+
+  // Upload files first — each ws.send() queues a binary frame.
+  // WebSocket preserves message order, so all file frames arrive at the
+  // server before the send-prompt JSON that follows.
+  for (var i = 0; i < toSend.length; i++) {
+    var file = toSend[i].file;
+    var fileBytes = new Uint8Array(await file.arrayBuffer());
+    var nameBytes = textEncoder.encode(file.name || 'attachment.bin');
+    var mimeBytes = textEncoder.encode(file.type || 'application/octet-stream');
+    var payload = new Uint8Array(nameBytes.length + 1 + mimeBytes.length + 1 + fileBytes.length);
+    payload.set(nameBytes, 0);
+    payload[nameBytes.length] = 0;
+    payload.set(mimeBytes, nameBytes.length + 1);
+    payload[nameBytes.length + 1 + mimeBytes.length] = 0;
+    payload.set(fileBytes, nameBytes.length + 1 + mimeBytes.length + 1);
+    var frame = encodeBinaryFrame(0x04, selectedAgent, payload);
+    ws.send(frame);
+    console.log('file queued:', file.name, file.size, 'bytes');
+  }
+
+  // Then send text prompt — server lock ensures files are pasted first
+  if (hasText) {
+    send({ type: 'send-prompt', agent: selectedAgent, prompt: text });
+  }
+
   setTimeout(function() { sendBtnEl.classList.remove('sending'); }, 500);
 }
 
@@ -1236,7 +1488,7 @@ function encodeBinaryFrame(type, agentName, payload) {
   return buf;
 }
 
-// File helpers
+// --- Drag & drop on entire main panel ---
 function hasFilesDT(dt) {
   if (!dt || !dt.types) return false;
   for (var i = 0; i < dt.types.length; i++) {
@@ -1245,69 +1497,43 @@ function hasFilesDT(dt) {
   return false;
 }
 
-var inputDragDepth = 0;
+var mainEl = document.querySelector('.main');
+var dragDepth = 0;
 
-inputAreaEl.addEventListener('dragenter', function(ev) {
-  if (!hasFilesDT(ev.dataTransfer)) return;
+mainEl.addEventListener('dragenter', function(ev) {
+  if (!hasFilesDT(ev.dataTransfer) || !selectedAgent) return;
   ev.preventDefault();
-  inputDragDepth++;
-  inputAreaEl.classList.add('drag-over');
+  dragDepth++;
+  mainEl.classList.add('drag-over');
 });
 
-inputAreaEl.addEventListener('dragover', function(ev) {
-  if (!hasFilesDT(ev.dataTransfer)) return;
+mainEl.addEventListener('dragover', function(ev) {
+  if (!hasFilesDT(ev.dataTransfer) || !selectedAgent) return;
   ev.preventDefault();
   if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
 });
 
-inputAreaEl.addEventListener('dragleave', function(ev) {
+mainEl.addEventListener('dragleave', function(ev) {
   ev.preventDefault();
-  inputDragDepth = Math.max(0, inputDragDepth - 1);
-  if (inputDragDepth === 0) inputAreaEl.classList.remove('drag-over');
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) mainEl.classList.remove('drag-over');
 });
 
-inputAreaEl.addEventListener('drop', function(ev) {
+mainEl.addEventListener('drop', function(ev) {
   ev.preventDefault();
-  inputDragDepth = 0;
-  inputAreaEl.classList.remove('drag-over');
-  if (!hasFilesDT(ev.dataTransfer)) return;
-  uploadFiles(ev.dataTransfer.files);
+  dragDepth = 0;
+  mainEl.classList.remove('drag-over');
+  if (!hasFilesDT(ev.dataTransfer) || !selectedAgent) return;
+  queueFiles(ev.dataTransfer.files);
 });
 
-// Clipboard paste for files
-inputAreaEl.addEventListener('paste', function(ev) {
+// Clipboard paste for files (on entire main panel)
+mainEl.addEventListener('paste', function(ev) {
   var files = ev.clipboardData && ev.clipboardData.files;
-  if (!files || files.length === 0) return;
-  ev.preventDefault();
-  uploadFiles(files);
-});
-
-async function uploadFiles(files) {
   if (!files || files.length === 0 || !selectedAgent) return;
-  var maxUpload = 8 * 1024 * 1024;
-  for (var i = 0; i < files.length; i++) {
-    var file = files[i];
-    if (!file) continue;
-    if (file.size > maxUpload) {
-      console.warn('skipping oversized file', file.name, file.size);
-      continue;
-    }
-    var fileBytes = new Uint8Array(await file.arrayBuffer());
-    var nameBytes = textEncoder.encode(file.name || 'attachment.bin');
-    var mimeBytes = textEncoder.encode(file.type || 'application/octet-stream');
-    var payload = new Uint8Array(nameBytes.length + 1 + mimeBytes.length + 1 + fileBytes.length);
-    payload.set(nameBytes, 0);
-    payload[nameBytes.length] = 0;
-    payload.set(mimeBytes, nameBytes.length + 1);
-    payload[nameBytes.length + 1 + mimeBytes.length] = 0;
-    payload.set(fileBytes, nameBytes.length + 1 + mimeBytes.length + 1);
-    var frame = encodeBinaryFrame(0x04, selectedAgent, payload);
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(frame);
-      console.log('file uploaded:', file.name, file.size, 'bytes');
-    }
-  }
-}
+  ev.preventDefault();
+  queueFiles(files);
+});
 
 // --- Boot ---
 connect();

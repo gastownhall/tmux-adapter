@@ -91,7 +91,10 @@ func (r *Registry) watchLoop() {
 		case <-r.stopCh:
 			return
 		case notif := <-r.ctrl.Notifications():
-			if notif.Type == "sessions-changed" {
+			switch notif.Type {
+			case "sessions-changed", "window-renamed":
+				// sessions-changed: session created/destroyed
+				// window-renamed: agent set terminal title (e.g., Claude Code → "2.1.42")
 				if err := r.scan(); err != nil {
 					log.Printf("agent scan error: %v", err)
 				}
@@ -134,7 +137,7 @@ func (r *Registry) scan() error {
 		// Determine process names to check
 		processNames := GetProcessNames(agentName)
 
-		// Check if agent is alive (not a zombie)
+		// Check if agent is alive — the agent is the CLI app, not the session.
 		// Detection priority (from gastown spec):
 		// 1. Direct pane command match
 		// 2. Shell wrapping agent → check descendants
@@ -145,8 +148,6 @@ func (r *Registry) scan() error {
 		} else if IsShell(pane.Command) && pane.PID != "" {
 			alive = CheckDescendants(pane.PID, processNames)
 		} else if pane.PID != "" {
-			// Unrecognized pane command (e.g., "2.1.38" for Claude Code)
-			// Check the actual binary path, then descendants
 			alive = CheckProcessBinary(pane.PID, processNames) || CheckDescendants(pane.PID, processNames)
 		}
 

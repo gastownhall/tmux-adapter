@@ -148,6 +148,14 @@ func ParseSessionName(name string) (role string, rig string) {
 		return "polecat", rigName
 	}
 
+	// Project-scoped: PROJECT/ROLE/NAME (e.g., hello_gastown/crew/bob)
+	if strings.Contains(name, "/") {
+		parts := strings.Split(name, "/")
+		if len(parts) >= 2 {
+			return parts[len(parts)-2], parts[0]
+		}
+	}
+
 	return "unknown", ""
 }
 
@@ -177,6 +185,7 @@ func InferRuntime(paneCommand, pid string) string {
 }
 
 // IsGastownSession checks if a session name belongs to gastown.
+// Matches classic prefixes (hq-*, gt-*) and project-scoped names (project/role/name).
 func IsGastownSession(name string) bool {
-	return strings.HasPrefix(name, "hq-") || strings.HasPrefix(name, "gt-")
+	return strings.HasPrefix(name, "hq-") || strings.HasPrefix(name, "gt-") || strings.Contains(name, "/")
 }

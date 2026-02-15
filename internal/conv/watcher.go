@@ -478,9 +478,20 @@ func (w *ConversationWatcher) retryDiscovery(agent agents.Agent, disc Discoverer
 }
 
 func (w *ConversationWatcher) emitEvent(event WatcherEvent) {
-	select {
-	case w.events <- event:
+	switch event.Type {
+	case "conversation-event":
+		// High-volume — non-blocking send, OK to drop (buffer retains events)
+		select {
+		case w.events <- event:
+		default:
+			log.Printf("watcher: dropped conversation-event (channel full)")
+		}
 	default:
-		// Drop if channel full — avoid blocking the event loop
+		// Lifecycle events (agent-added/removed/updated, conversation-started/switched)
+		// are rare and critical — block until delivered or context cancelled
+		select {
+		case w.events <- event:
+		case <-w.ctx.Done():
+		}
 	}
 }

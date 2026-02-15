@@ -1,3 +1,2 @@
 tmp/
-tmux-adapter
-tmux-converter
+bin/

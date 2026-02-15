@@ -82,15 +82,16 @@ func ParseFileUploadPayload(payload []byte) (fileName string, mimeType string, d
 }
 
 // BuildPastePayload determines what to paste into the tmux session.
+// File paths get a trailing space so multiple attachments don't run together.
 func BuildPastePayload(savedPath, pastePath, mimeType string, fileBytes []byte) []byte {
 	if len(fileBytes) <= maxInlinePasteBytes && IsTextLike(mimeType, fileBytes) {
 		return fileBytes
 	}
 	// Images need the absolute path so Claude Code can read and render them inline.
 	if strings.HasPrefix(mimeType, "image/") {
-		return []byte(savedPath)
+		return []byte(savedPath + " ")
 	}
-	return []byte(pastePath)
+	return []byte(pastePath + " ")
 }
 
 // BuildServerPastePath returns a path string that is valid on the server-side
