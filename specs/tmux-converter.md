@@ -65,7 +65,7 @@ A single binary with a plugin system. Core handles tmux interaction and WebSocke
 
 **Implementation: Two separate binaries.** The adapter is `tmux-adapter` (built from `main.go`), the converter is `tmux-converter` (built from `cmd/tmux-converter/main.go`). Both binaries share the same Go module and `internal/` packages.
 
-Each binary has its own ControlMode connection and Registry instance (`adapter-monitor` and `converter-monitor` sessions respectively). This means two independent `tmux -C` sessions and duplicated `scan()` calls on every `%sessions-changed` event. This is intentional — it preserves full isolation between the adapter and converter, avoids shared-state coupling, and tmux handles multiple control clients efficiently.
+Each binary has its own ControlMode connection and Registry instance (`adapter-monitor` and `converter-monitor` sessions respectively). This means two independent `tmux -C` sessions and duplicated `scan()` calls on every `%sessions-changed` / `%unlinked-window-renamed` event. This is intentional — it preserves full isolation between the adapter and converter, avoids shared-state coupling, and tmux handles multiple control clients efficiently.
 
 The subcommand approach (single binary with `serve`/`converter`/`start` subcommands) was originally planned but deferred in favor of separate binaries for simplicity. A combined `start` command may be added later.
 

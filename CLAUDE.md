@@ -54,7 +54,7 @@ main.go → adapter.New() → wires everything together
                 │
                 ├── internal/tmux/control.go       ControlMode: single tmux -C connection
                 │                                  Serialized command execution with %begin/%end parsing
-                │                                  Notifications channel for %sessions-changed events
+                │                                  Notifications channel for %sessions-changed, %window-renamed events
                 │
                 ├── internal/tmux/commands.go      High-level tmux operations built on ControlMode.Execute()
                 │                                  ListSessions, SendKeysLiteral, CapturePaneAll, ResizePaneTo, etc.
@@ -62,7 +62,7 @@ main.go → adapter.New() → wires everything together
                 ├── internal/tmux/pipepane.go      PipePaneManager: per-agent output streaming via pipe-pane -o
                 │                                  Ref-counted: activates on first subscriber, deactivates on last
                 │
-                ├── internal/agents/registry.go    Registry: watches %sessions-changed → scans → diffs → emits events
+                ├── internal/agents/registry.go    Registry: watches %sessions-changed + %window-renamed → scans → diffs → emits events
                 │                                  Events channel feeds into wsadapter.Server for lifecycle broadcasts
                 │
                 ├── internal/agents/detect.go      Agent detection: env vars, process tree walking, runtime inference
@@ -108,13 +108,13 @@ cmd/tmux-converter/main.go → converter.New() → wires everything together
 ### Key data flows
 
 **Adapter:**
-- **Agent lifecycle**: tmux `%sessions-changed` → Registry.scan() → diff → RegistryEvent channel → wsadapter.Server broadcasts JSON to subscribers
+- **Agent lifecycle**: tmux `%sessions-changed` / `%unlinked-window-renamed` → Registry.scan() → diff → RegistryEvent channel → wsadapter.Server broadcasts JSON to subscribers
 - **Terminal output**: tmux `pipe-pane -o` → temp file → PipePaneManager reads → binary 0x01 frames to subscribed clients
 - **Keyboard input**: client binary 0x02 → VT sequence → tmux key name mapping → SendKeysRaw/SendKeysBytes
 - **Send prompt**: per-agent mutex → SendKeysLiteral → 500ms pause → Escape → Enter (3x retry, 200ms backoff) → SIGWINCH resize dance for detached sessions
 
 **Converter:**
-- **Agent lifecycle**: tmux `%sessions-changed` → Registry.scan() → diff → RegistryEvent channel → wsconv.Server broadcasts JSON to subscribers
+- **Agent lifecycle**: tmux `%sessions-changed` / `%unlinked-window-renamed` → Registry.scan() → diff → RegistryEvent channel → wsconv.Server broadcasts JSON to subscribers
 - **Conversation streaming**: agent detected → discovery finds `~/.claude/projects/{encoded-workdir}/*.jsonl` → loads ALL historical files oldest-first → tailer streams live events → parser normalizes to ConversationEvent → buffer stores → WebSocket broadcasts to subscribers
 - **follow-agent**: client follows agent name → auto-subscribes to current conversation → snapshot + live events → auto-switches on conversation rotation
 

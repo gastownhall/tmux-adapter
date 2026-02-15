@@ -153,10 +153,11 @@ Control mode connects to the tmux **server**, not a specific session. You get no
 
 tmux emits event notifications:
 - `%sessions-changed` — a session was created or destroyed (by anyone, including gastown)
+- `%unlinked-window-renamed` — a window was renamed in a non-attached session (fires when agent processes start/stop in existing sessions, since the window title reflects the running process)
 - `%session-changed $ID name` — attached session switched
 - `%output %PANE_ID DATA` — pane output (if subscribed)
 
-When you see `%sessions-changed`, send `list-sessions` through stdin to diff against your known set. Commands and queries go through the same connection.
+When you see `%sessions-changed` or `%unlinked-window-renamed`, send `list-sessions` through stdin to diff against your known set. Commands and queries go through the same connection.
 
 This is what GUI tmux clients (iTerm2, tmux integration layers) use. For a programmatic wrapper, control mode is the natural foundation — session lifecycle events, pane output, and command sending all through one bidirectional connection.
 

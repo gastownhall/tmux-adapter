@@ -272,7 +272,7 @@ Clients see agents. Internally it's all tmux.
 **Control mode connection:**
 - One `tmux -C attach -t "adapter-monitor"` connection at startup
 - All commands (list, send-keys, capture-pane, show-environment) go through it
-- `%sessions-changed` events trigger re-scan for agent lifecycle
+- `%sessions-changed` and `%unlinked-window-renamed` events trigger re-scan for agent lifecycle
 
 **GT directory scoping:**
 - The `--gt-dir` flag determines which gastown instance to watch
@@ -280,7 +280,7 @@ Clients see agents. Internally it's all tmux.
 - Agent working directories are validated against the GT directory tree
 
 **Agent detection:**
-- On `%sessions-changed`: list sessions, read `GT_AGENT`/`GT_ROLE`/`GT_RIG` env vars, verify agent process is alive (not zombie)
+- On `%sessions-changed` or `%unlinked-window-renamed`: list sessions, read `GT_AGENT`/`GT_ROLE`/`GT_RIG` env vars, verify agent process is alive (not zombie)
 - Diff against known set → push `agent-added` / `agent-removed` / `agent-updated` to subscribed clients
 - Hot-reload handling: when an agent hot-reloads (same session, process dies + restarts), emit `agent-removed` then `agent-added` with the same name in quick succession. No new event type needed.
 
