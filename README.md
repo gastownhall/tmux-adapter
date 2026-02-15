@@ -7,9 +7,9 @@ A WebSocket service that exposes [gastown](https://github.com/steveyegge/gastown
 ## Quick Start
 
 ```bash
-go build -o tmux-adapter .
+go build -o bin/tmux-adapter .
 gt start
-./tmux-adapter --gt-dir ~/gt --port 8080
+bin/tmux-adapter --gt-dir ~/gt --port 8080
 ```
 
 Connect with any WebSocket client:
@@ -25,7 +25,7 @@ The Gastown Dashboard lives in `samples/adapter.html` — a consumer of the WebS
 **Quick (single port, development):**
 
 ```bash
-./tmux-adapter --gt-dir ~/gt --port 8080 --debug-serve-dir ./samples
+bin/tmux-adapter --gt-dir ~/gt --port 8080 --debug-serve-dir ./samples
 open http://localhost:8080
 ```
 
@@ -33,7 +33,7 @@ open http://localhost:8080
 
 ```bash
 # Terminal 1: start the adapter
-./tmux-adapter --gt-dir ~/gt --port 8080
+bin/tmux-adapter --gt-dir ~/gt --port 8080
 
 # Terminal 2: serve the sample
 python3 -m http.server 8000 --directory samples
@@ -54,7 +54,7 @@ The simplest approach uses `--debug-serve-dir` so only one ngrok tunnel is neede
 
 ```bash
 # 1. Start the adapter serving the sample
-./tmux-adapter --gt-dir ~/gt --port 8080 --debug-serve-dir ./samples
+bin/tmux-adapter --gt-dir ~/gt --port 8080 --debug-serve-dir ./samples
 
 # 2. Expose via ngrok (single tunnel)
 ngrok http 8080
@@ -205,24 +205,24 @@ A companion service that streams **structured conversation events** from CLI AI 
 ### Quick Start
 
 ```bash
-go build -o tmux-converter ./cmd/tmux-converter/
+go build -o bin/tmux-converter ./cmd/tmux-converter/
 gt start
-./tmux-converter --gt-dir ~/gt --listen :8081
+bin/tmux-converter --gt-dir ~/gt --listen :8081
 ```
 
 ### Converter Dashboard
 
 ```bash
-./tmux-converter --gt-dir ~/gt --listen :8081 --debug-serve-dir ./samples
+bin/tmux-converter --gt-dir ~/gt --listen :8081 --debug-serve-dir ./samples
 open http://localhost:8081/converter.html
 ```
 
 ### Running Both Services
 
 ```bash
-go build -o tmux-adapter . && go build -o tmux-converter ./cmd/tmux-converter/
-./tmux-adapter --gt-dir ~/gt --port 8080 --debug-serve-dir ./samples &
-./tmux-converter --gt-dir ~/gt --listen :8081 --debug-serve-dir ./samples &
+go build -o bin/tmux-adapter . && go build -o bin/tmux-converter ./cmd/tmux-converter/
+bin/tmux-adapter --gt-dir ~/gt --port 8080 --debug-serve-dir ./samples &
+bin/tmux-converter --gt-dir ~/gt --listen :8081 --debug-serve-dir ./samples &
 # Adapter dashboard: http://localhost:8080/adapter.html
 # Converter dashboard: http://localhost:8081/converter.html
 ```

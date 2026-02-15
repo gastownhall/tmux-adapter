@@ -1,8 +1,9 @@
 .PHONY: build test vet lint check
 
 build:
-	go build -o tmux-adapter .
-	go build -o tmux-converter ./cmd/tmux-converter
+	@mkdir -p bin
+	go build -o bin/tmux-adapter .
+	go build -o bin/tmux-converter ./cmd/tmux-converter
 
 test:
 	go test ./...
