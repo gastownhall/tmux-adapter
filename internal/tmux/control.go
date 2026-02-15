@@ -221,6 +221,9 @@ func (cm *ControlMode) readLoop(stdout io.Reader) {
 		case strings.HasPrefix(line, "%output"):
 			cm.notifications <- Notification{Type: "output", Args: strings.TrimPrefix(line, "%output ")}
 
+		case strings.HasPrefix(line, "%unlinked-window-renamed"):
+			cm.notifications <- Notification{Type: "window-renamed", Args: strings.TrimPrefix(line, "%unlinked-window-renamed ")}
+
 		case strings.HasPrefix(line, "%window-renamed"):
 			cm.notifications <- Notification{Type: "window-renamed", Args: strings.TrimPrefix(line, "%window-renamed ")}
 
