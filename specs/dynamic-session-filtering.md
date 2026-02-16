@@ -134,10 +134,11 @@ func DetectRuntime(paneCommand, pid string) string {
 
     // Tier 2: Shell wrapping → check descendants
     // OPTIMIZATION (all three R2 reviewers): Collect ALL descendant process
-    // names in a single pgrep call, then match against runtimes in-memory.
-    // This reduces 7 pgrep invocations to 1 per session.
+    // names in a single tree-collection phase (O(depth) pgrep calls), then
+    // match against all runtimes in-memory. This reduces 7×depth pgrep
+    // invocations to 1×depth per session.
     if IsShell(paneCommand) && pid != "" {
-        descendants := CollectDescendantNames(pid)  // single pgrep -P call
+        descendants := CollectDescendantNames(pid)  // O(depth) pgrep calls
         for _, runtime := range runtimePriority {
             if matchesAny(descendants, runtimeProcessNames[runtime]) {
                 return runtime
@@ -158,7 +159,7 @@ func DetectRuntime(paneCommand, pid string) string {
                 return runtime
             }
         }
-        descendants := CollectDescendantNames(pid)  // single pgrep call
+        descendants := CollectDescendantNames(pid)  // O(depth) pgrep calls
         for _, runtime := range runtimePriority {
             if matchesAny(descendants, runtimeProcessNames[runtime]) {
                 return runtime
@@ -199,16 +200,23 @@ for each tmux session:
 **Complexity analysis**: Let S = total tmux sessions, R = known runtimes (|runtimePriority| = 7).
 ```
 Best case per session:   O(R) string comparisons (Tier 1 match on direct command)
-Worst case per session:  1 pgrep call + O(R × |descendants|) in-memory matching (Tier 2/3)
-Typical per scan:        O(S) pgrep calls (one per shell session) + O(S × R) string comparisons
+Worst case per session:  O(depth) pgrep calls + O(R × |descendants|) in-memory matching (Tier 2/3)
+Typical per scan:        O(S × depth) pgrep calls (one tree walk per shell session) + O(S × R) string comparisons
                          Most sessions are shells; pgrep returns fast for shells with no agents.
-External process cost:   At most S pgrep invocations per scan cycle (was S × R before optimization).
+                         Typical depth ≤ 3 for shell → agent process trees.
+External process cost:   At most S × depth pgrep invocations per scan cycle (was S × R × depth before optimization).
 ```
 
 **New helper functions** for the optimized descendant detection:
 ```go
-// CollectDescendantNames calls pgrep -P <pid> -l once and returns all
-// descendant process names. Walks recursively up to maxDepth (10).
+// CollectDescendantNames walks the process tree below pid, collecting all
+// descendant process names. Internally makes O(depth) pgrep -P calls
+// (one per tree level, max 10 levels), but collects names into a single
+// slice so callers match against all runtimes in-memory without repeating
+// the walk. The optimization vs the old CheckDescendants: we collect ONCE
+// per session and match against all 7 runtimes in memory, instead of
+// walking the tree 7 times (once per runtime). Savings: 7×depth → 1×depth
+// pgrep calls per shell session.
 func CollectDescendantNames(pid string) []string
 
 // matchesAny checks if any name in descendants matches any name in processNames.
@@ -383,7 +391,11 @@ EnsureTailing(agentName):
     w.tailing[agentName] = state
     unlock
 
-    // Start discovery and tailing in background
+    // Start discovery and tailing in background.
+    // IMPORTANT (Claude R3 F49, F56): discoverAndTail MUST propagate this
+    // per-agent ctx to startConversationStream and retryDiscovery, NOT use
+    // w.ctx. When the tailing is cancelled (grace timer or agent removal),
+    // this ctx cancels all streams and retry goroutines for this agent.
     go w.discoverAndTail(ctx, agent)
     return nil
 ```
@@ -513,14 +525,13 @@ if err := c.server.watcher.EnsureTailing(msg.Agent); err != nil {
 c.server.watcher.ReleaseTailing(sub.agentName)
 
 // In client disconnect cleanup (removeClient):
-// Release all tailing refs for agents this client was following:
-for agentName := range c.follows {
-    c.server.watcher.ReleaseTailing(agentName)
-}
-// ALSO release refs from subscribe-conversation subscriptions (Codex R2 #3):
-// The refcount invariant includes BOTH follows AND conv subscriptions:
-//   refCount(a) = |{c : c.follows(a) ∨ c.subscribes_conv(a)}|
-// Only releasing c.follows would leak refs for conversation-only subscriptions.
+//
+// CRITICAL (all three R3 reviewers): follow-agent subscriptions are stored
+// in BOTH c.follows AND c.subs (server.go lines 462-463). Iterating both
+// maps double-releases the tailing ref. Fix: iterate ONLY c.subs (which
+// is the superset containing both follow-agent and subscribe-conversation
+// subscriptions). Do NOT iterate c.follows for ReleaseTailing.
+//
 for _, sub := range c.subs {
     if sub.agentName != "" {
         c.server.watcher.ReleaseTailing(sub.agentName)
@@ -548,6 +559,7 @@ Additionally, since `EnsureTailing` is async (starts `discoverAndTail` in a goro
 // Extract agent name from conversationID format "runtime:agentName:nativeId"
 agentName := extractAgentFromConvID(msg.ConversationID)
 if agentName == "" {
+    // Fallback: check convToAgent map (populated when tailing is active)
     agentName = c.server.watcher.GetAgentForConversation(msg.ConversationID)
 }
 
@@ -562,6 +574,14 @@ if agentName != "" {
 
 buf := c.server.watcher.GetBuffer(msg.ConversationID)
 if buf == nil && agentName != "" {
+    // Reject duplicate pending requests for same conversationID (Codex R3 #2):
+    // A second request overwrites the first, leaving the first unanswered.
+    // Error the duplicate; the client can unsubscribe and re-subscribe.
+    if _, exists := c.pendingConvSubs[msg.ConversationID]; exists {
+        c.sendJSON(serverMessage{ID: msg.ID, Type: "error",
+            Error: "already pending subscription for this conversation"})
+        return
+    }
     // Buffer not ready yet (EnsureTailing is async) — mark as pending.
     // When discoverAndTail completes and emits conversation-started,
     // deliverConversationStarted will check pending conv subscriptions
@@ -570,8 +590,23 @@ if buf == nil && agentName != "" {
         msgID:     msg.ID,
         agentName: agentName,
         filter:    msg.Filter,
+        // Timeout: 30 seconds. If tailing doesn't produce this conversation
+        // by then, send an error and clean up. (All three R3 reviewers)
+        timer: time.AfterFunc(30*time.Second, func() {
+            c.mu.Lock()
+            pending, ok := c.pendingConvSubs[msg.ConversationID]
+            if !ok {
+                c.mu.Unlock()
+                return  // already resolved
+            }
+            delete(c.pendingConvSubs, msg.ConversationID)
+            c.mu.Unlock()
+            c.server.watcher.ReleaseTailing(pending.agentName)
+            c.sendJSON(serverMessage{ID: pending.msgID, Type: "error",
+                Error: "conversation not found within timeout"})
+        }),
     }
-    return  // response sent when subscription binds
+    return  // response sent when subscription binds (or times out)
 }
 // ... rest of existing subscribe-conversation logic (buf != nil case) ...
 
@@ -580,21 +615,99 @@ if sub.agentName != "" {
     c.server.watcher.ReleaseTailing(sub.agentName)
 }
 // Also clean up pending conv subs:
-delete(c.pendingConvSubs, sub.conversationID)
+if pending, ok := c.pendingConvSubs[sub.conversationID]; ok {
+    if pending.timer != nil {
+        pending.timer.Stop()
+    }
+    delete(c.pendingConvSubs, sub.conversationID)
+}
+```
+
+**`deliverConversationStarted` must check `pendingConvSubs`** (all three R3 reviewers):
+
+The existing `deliverConversationStarted` (lines 576-615) only checks `c.follows` for pending follow-agent subscriptions. It must ALSO check `c.pendingConvSubs`:
+
+```go
+// In deliverConversationStarted, AFTER the existing c.follows check:
+if pending, ok := c.pendingConvSubs[we.NewConvID]; ok {
+    pending.timer.Stop()
+    delete(c.pendingConvSubs, we.NewConvID)
+
+    buf := c.server.watcher.GetBuffer(we.NewConvID)
+    if buf == nil {
+        c.sendJSON(serverMessage{ID: pending.msgID, Type: "error",
+            Error: "conversation buffer not available"})
+        c.server.watcher.ReleaseTailing(pending.agentName)
+        return
+    }
+
+    filter := buildFilter(pending.filter)
+    snapshot, bufSubID, live := buf.Subscribe(filter)
+    sID := c.nextSubID()
+    subCtx, subCancel := context.WithCancel(c.ctx)
+    sub := &subscription{
+        id:             sID,
+        conversationID: we.NewConvID,
+        agentName:      pending.agentName,
+        bufSubID:       bufSubID,
+        filter:         filter,
+        live:           live,
+        cancel:         subCancel,
+    }
+    c.subs[sID] = sub
+
+    snapshot = capSnapshot(snapshot)
+    cursor := makeCursor(we.NewConvID, snapshot)
+    c.sendJSON(serverMessage{
+        ID:             pending.msgID,
+        Type:           "conversation-snapshot",
+        SubscriptionID: sID,
+        ConversationID: we.NewConvID,
+        Events:         snapshot,
+        Cursor:         cursor,
+    })
+    go c.streamLiveWithContext(sub, buf, subCtx)
+}
+```
+
+**NOTE**: `pendingConvSubs` can only resolve for the **active** conversation (the most recent JSONL file). If the client requests a historical/inactive conversation ID, `deliverConversationStarted` fires with the active conversation's ID, which won't match the pending key. The pending sub will timeout after 30 seconds and the client receives an error. This is intentional — historical conversations require on-demand loading (future feature), not the lazy tailing mechanism.
+
+**`GetAgentForConversation` method** (Claude R3 F57):
+```go
+// GetAgentForConversation returns the agent name for a conversation ID,
+// or "" if the mapping is not known. Uses the convToAgent map populated
+// during startConversationStream.
+func (w *ConversationWatcher) GetAgentForConversation(convID string) string {
+    w.mu.RLock()
+    defer w.mu.RUnlock()
+    return w.convToAgent[convID]
+}
 ```
 
 Helper function:
 ```go
+// extractAgentFromConvID parses the conversation ID format "runtime:agentName:nativeId"
+// (defined in discovery.go:110) to extract the agent name. Returns "" if the format
+// is not recognized. Validates that parts[0] is a known runtime to avoid false
+// positives on non-standard ID formats. (Claude R3 F44: robustness)
 func extractAgentFromConvID(convID string) string {
     parts := strings.SplitN(convID, ":", 3)
-    if len(parts) >= 2 {
-        return parts[1]
+    if len(parts) < 3 {
+        return ""  // not the standard 3-part format
     }
-    return ""
+    // Validate runtime component against known runtimes
+    knownRuntimes := map[string]bool{
+        "claude": true, "gemini": true, "codex": true,
+        "cursor": true, "auggie": true, "amp": true, "opencode": true,
+    }
+    if !knownRuntimes[parts[0]] {
+        return ""  // unknown runtime prefix — don't trust the parse
+    }
+    return parts[1]
 }
 ```
 
-**Key insight**: The existing pending-follow mechanism (`handleFollowAgent` lines 410-427 and `deliverConversationStarted` lines 576-615) already handles the async case where tailing hasn't started yet for `follow-agent`. For `subscribe-conversation`, a new `pendingConvSubs` map provides the same deferred-binding pattern. The critical additions are: (1) release-before-acquire on same-agent follow replacement only (not other agents), (2) pending subscription for subscribe-conversation, (3) disconnect cleanup for both `c.follows` and `c.subs` refs.
+**Key insight**: The existing pending-follow mechanism (`handleFollowAgent` lines 410-427 and `deliverConversationStarted` lines 576-615) already handles the async case where tailing hasn't started yet for `follow-agent`. For `subscribe-conversation`, a new `pendingConvSubs` map provides the same deferred-binding pattern. The critical additions are: (1) release-before-acquire on same-agent follow replacement only (not other agents), (2) pending subscription with 30-second timeout, (3) disconnect cleanup via `c.subs` only (not `c.follows` — avoids double-release), (4) `deliverConversationStarted` checks both `c.follows` and `c.pendingConvSubs`.
 
 #### Edge Cases
 
@@ -748,14 +861,17 @@ type client struct {
 
    **NOTE** (Codex R2 #6): The current `subscribedAgents` flag in `wsconv` is written in request handling and read in `Broadcast` without consistently holding `c.mu`. The new filter fields MUST NOT copy this pattern. Both reads and writes of `includeSessionFilter`/`excludeSessionFilter` (and `subscribedAgents`) must hold `c.mu`. Verify this during implementation.
 
-   **Lock ordering invariant** (Codex R2 #5, Claude R2 F9): All locks must be acquired in this order to prevent deadlocks:
+   **Lock ordering invariant** (Codex R2 #5, Claude R2 F9, updated R3): All locks must be acquired in this order to prevent deadlocks:
    ```
    server.mu → client.mu → watcher.mu → tailingMu
    ```
-   Never acquire a lock that precedes a currently-held lock. In particular:
+   **`registry.mu`** (Claude R3 F46/F54): The registry's `sync.RWMutex` is acquired independently by the registry's own scan loop and by `Registry.Count()`/`Registry.GetAgents()`. It is **not in the main chain** — it must never be held simultaneously with any of the above locks. All registry reads (`GetAgents`, `Count`, `GetAgent`) are standalone calls that acquire `registry.mu` atomically and release it before returning.
+
+   Never acquire a lock that precedes a currently-held lock. Key paths verified:
    - Broadcast loop: holds `server.mu`, acquires `client.mu` for filter check — OK
    - Grace timer callback: acquires `tailingMu`, calls `cleanupAgent` which acquires `watcher.mu` — **VIOLATION** (tailingMu before watcher.mu). Fixed by releasing `tailingMu` before calling `cleanupAgent` (see ReleaseTailing pseudocode).
    - Handler code: holds `client.mu`, calls `EnsureTailing` which acquires `tailingMu` — OK (client.mu before tailingMu)
+   - Follow re-subscribe (Codex R3 #4): holds `client.mu`, calls `ReleaseTailing` (acquires+releases `tailingMu`), then calls `GetBuffer` (acquires+releases `watcher.mu`). These are **sequential**, not nested — `tailingMu` is released before `watcher.mu` is acquired. Safe because the ordering invariant only constrains simultaneously-held locks. The only concern is the grace timer's AfterFunc, which is addressed above.
 
 #### Acceptance Criteria
 
@@ -836,11 +952,24 @@ This lets the dashboard show "5 of 12 agents" without a separate request.
 {"type": "agent-removed", "name": "old-session", "totalAgents": 11}
 ```
 
-**CRITICAL: `totalAgents` is UNFILTERED** (Codex R2 #4): The `totalAgents` count must always reflect the true total on the server, not the filtered count visible to the client. Since lifecycle broadcasts are filtered per-client (non-matching agents are skipped), a filtered client would never receive events for non-matching agents and could not update `M` in "N of M". Solution: `totalAgents` is sent on ALL lifecycle events to ALL clients, regardless of whether the specific agent passes their filter. This means even if `agent-added` for a non-matching agent is suppressed, the client still needs the updated total. Two approaches:
-1. **(Preferred)** Send ALL lifecycle events to all clients, but mark non-matching ones with a `filtered: true` flag so the dashboard updates the total without adding the agent to the visible list.
-2. Send a separate `agents-count` event to all clients whenever the total changes, independent of the per-client filter.
+**CRITICAL: `totalAgents` is UNFILTERED** (Codex R2 #4, revised R3): The `totalAgents` count must always reflect the true total on the server, not the filtered count visible to the client. Since lifecycle broadcasts are filtered per-client (non-matching agents are skipped), a filtered client would never receive events for non-matching agents and could not update `M` in "N of M".
 
-For implementation simplicity, approach (1) is recommended — the broadcast loop sends to everyone, adding `"filtered": true` when `passesFilter` returns false, and the client uses `totalAgents` from the event regardless of the `filtered` flag.
+**Solution: Approach 2 — separate `agents-count` event** (Codex R3 #5, Claude R3 F48):
+
+The original approach (1) — send ALL lifecycle events to all clients with `filtered: true` — was rejected because:
+- It contradicts Section 3.4's filter-before-send semantics
+- The adapter pre-marshals `msg []byte` and cannot vary `filtered` per client without per-client remarshal
+- Sending full agent payloads to all clients negates the bandwidth savings of filtering
+
+Instead, use approach (2): **send a tiny `agents-count` event to ALL clients whenever the total changes**, independent of the per-client filter. Lifecycle events (`agent-added`/`agent-removed`/`agent-updated`) remain filtered per-client:
+
+```json
+{"type": "agents-count", "totalAgents": 13}
+```
+
+The broadcast loop sends filtered lifecycle events per-client, plus an unconditional `agents-count` to everyone. The `agents-count` event is small (no agent payload) and cheap to marshal once.
+
+For the adapter (pre-marshaled bytes), `agents-count` is marshaled once and sent to all clients without per-client variation. The existing per-client filter check applies only to lifecycle events.
 
 To avoid the performance concern (Gemini R2 #4) of calling `registry.GetAgents()` (which allocates a full slice) inside the broadcast loop just to get a count, add a lightweight `Count()` method to `Registry`:
 ```go
@@ -935,13 +1064,14 @@ The adapter dashboard previously showed role badges (mayor, witness, crew, etc.)
 4. Remove `Role` and `Rig` fields from Agent struct
 5. Replace `InferRuntime()` with `DetectRuntime()` — returns `""` for non-agents, uses ordered `runtimePriority`, includes descendant walking
 6. Add `runtimePriority` ordered slice for deterministic runtime detection
-7. Update scan() diff to detect runtime changes (compare `oldAgent.Runtime != newAgent.Runtime`)
-8. Rename `--gt-dir` to `--work-dir` (keep alias), default to empty
-9. Rename `gtDir` → `workDirFilter` throughout internal packages
-10. Update detect_test.go — remove Role/Rig from all Agent references, add DetectRuntime tests
-11. Update wsadapter and wsconv JSON serialization (no more role/rig fields)
-12. Update adapter.html and converter.html to not display role/rig badges
-13. Update `specs/adapter-api.md` to reflect new Agent model (no role/rig)
+7. Add `CollectDescendantNames()` and `matchesAny()` for optimized descendant detection (moved from Phase 2 — required by `DetectRuntime` Tier 2/3) (Claude R3 F50)
+8. Update scan() diff to detect runtime changes (compare `oldAgent.Runtime != newAgent.Runtime`)
+9. Rename `--gt-dir` to `--work-dir` (keep alias), default to empty
+10. Rename `gtDir` → `workDirFilter` throughout internal packages
+11. Update detect_test.go — remove Role/Rig from all Agent references, add DetectRuntime tests
+12. Update wsadapter and wsconv JSON serialization (no more role/rig fields)
+13. Update adapter.html and converter.html to not display role/rig badges
+14. Update `specs/adapter-api.md` to reflect new Agent model (no role/rig)
 
 **Acceptance**: `make check` passes. Running server without `--work-dir` shows all agent sessions. Agent list shows session name + runtime only.
 
@@ -953,12 +1083,14 @@ The adapter dashboard previously showed role badges (mayor, witness, crew, etc.)
 3. Change `watchLoop` to call `recordAgent()` instead of `startWatching()` on "added" events
 4. Handle "removed" events by cancelling tailing regardless of ref count (fixes pre-existing subagent stream leak — Claude R2 F6)
 5. Wire `EnsureTailing`/`ReleaseTailing` into wsconv/server.go follow/subscribe/unsubscribe handlers
-6. Handle client disconnect cleanup — release refs from BOTH `c.follows` AND `c.subs`
-7. Add `pendingConvSubs` map for deferred subscribe-conversation binding
-8. Add `extractAgentFromConvID()` helper for parsing conversationID format
-9. Update watcher `Stop()` to clean up all grace timers and tailing state
-10. Add `CollectDescendantNames()` and `matchesAny()` for optimized descendant detection
-11. Remove or neutralize `GetProcessNames()` fallback (dead code after deGasification)
+6. Handle client disconnect cleanup — release refs via `c.subs` only (NOT `c.follows` — avoids double-release since follow subs are in both maps) (R3 fix)
+7. Add `pendingConvSubs` map with 30-second timeout for deferred subscribe-conversation binding (R3 fix)
+8. Update `deliverConversationStarted` to check `pendingConvSubs` in addition to `c.follows` (R3 fix)
+9. Add `extractAgentFromConvID()` helper with runtime validation for parsing conversationID format (R3 fix)
+10. Add `GetAgentForConversation()` method on ConversationWatcher (R3 fix)
+11. Update watcher `Stop()` to clean up all grace timers and tailing state
+12. Propagate per-agent context from `EnsureTailing` through `discoverAndTail` to `startConversationStream` and `retryDiscovery` — do NOT use `w.ctx` (R3 fix)
+13. Remove or neutralize `GetProcessNames()` fallback (dead code after deGasification)
 
 **Acceptance**: Agent list appears instantly. Conversation streaming starts only when clicking an agent. Unsubscribing from all agents for 30+ seconds stops tailing (verifiable via logs).
 
@@ -969,10 +1101,12 @@ The adapter dashboard previously showed role badges (mayor, witness, crew, etc.)
 2. Add `includeSessionFilter`/`excludeSessionFilter` to adapter `subscribe-agents` handler
 3. Add `includeSessionFilter`/`excludeSessionFilter` to `list-agents` handler (both)
 4. Add `totalAgents` to subscribe-agents response
-5. Filter agent event broadcasts per-client
-6. Validate regex, return error on invalid patterns
+5. Add `agents-count` event broadcast to all clients on agent lifecycle changes (R3 fix — replaces `filtered: true` approach)
+6. Filter agent event broadcasts per-client
+7. Validate regex, return error on invalid patterns
+8. Fix `subscribedAgents` race in wsconv: write must hold `c.mu` (Claude R3 F52, existing bug)
 
-**Acceptance**: Sending `subscribe-agents` with `includeSessionFilter: "^gt-"` returns only GT agents. Sending without filters returns all agents. Invalid regex returns error.
+**Acceptance**: Sending `subscribe-agents` with `includeSessionFilter: "^gt-"` returns only GT agents. Sending without filters returns all agents. Invalid regex returns error. `agents-count` events update the total for all clients regardless of filter.
 
 ### Phase 4: Dashboard UI
 
@@ -1029,11 +1163,17 @@ The adapter dashboard previously showed role badges (mayor, witness, crew, etc.)
 - Test: re-subscribe replaces filter and returns fresh agent list
 - Test: agent-added broadcast respects per-client filter
 - Test: agent-removed broadcast respects per-client filter
-- Test: totalAgents count is correct in subscribe response and lifecycle events
+- Test: totalAgents count is correct in subscribe response
+- Test: agents-count event sent to all clients on lifecycle changes (R3)
 - Test: follow-agent for unsupported runtime returns conversationSupported=false
 - Test: subscribe-conversation with pending mechanism — subscription binds when tailing completes
 - Test: subscribe-conversation for unfollowed agent — parses agent from convID, starts tailing
-- Test: client disconnect releases refs from BOTH c.follows AND c.subs
+- Test: subscribe-conversation pending timeout — error after 30 seconds (R3)
+- Test: subscribe-conversation duplicate pending for same convID — rejected with error (R3)
+- Test: subscribe-conversation with historical/inactive convID — times out (R3)
+- Test: client disconnect releases refs via c.subs only (not c.follows — avoids double-release) (R3)
+- Test: extractAgentFromConvID rejects unknown runtime prefixes (R3)
+- Test: subscribedAgents write holds c.mu (R3)
 
 **wsadapter filter tests** (currently only key-sequence tests exist):
 - Test: subscribe-agents with includeFilter returns filtered agent list
@@ -1087,7 +1227,9 @@ For each agent `a`, let `refCount(a)` be the tailing reference count. The follow
 
 ```
 refCount(a) ≥ 0                              ∀ a, ∀ t     (non-negative)
-refCount(a) = |{c ∈ clients : c.follows(a) ∨ c.subscribes_conv(a)}|  (count = followers + conv subscribers)
+refCount(a) = |{c ∈ clients : c.subs_has_agent(a) ∨ c.pending_conv(a)}|  (count = subs + pending conv)
+// NOTE: c.subs is the superset containing both follow-agent and subscribe-conversation subs.
+// Do NOT double-count via c.follows — follows are already in c.subs. (R3 fix)
 tailing_active(a) ⟺ refCount(a) > 0 ∨ grace_timer(a)      (tailing iff refs or grace period)
 ```
 
@@ -1134,7 +1276,8 @@ Total per scan cycle:     O(A × C × max|name|)     (all events × all clients 
 | Lazy tailing race conditions | Medium | Medium | Mutex protection, grace period, lock ordering invariant documented |
 | Regex DoS via WebSocket | Very Low | Low | Go RE2 has no backtracking; no timeout needed |
 | Breaking existing adapter consumers | High | Medium | Intentional — deGasification removes role/rig. Update adapter-api.md. No version bump (clean break) |
-| Client disconnect without cleanup | Medium | Low | Disconnect handler releases refs from BOTH c.follows AND c.subs |
+| Client disconnect without cleanup | Medium | Low | Disconnect handler releases refs via c.subs only (not c.follows — avoids double-release) |
+| Pending conv sub leak | Medium | Medium | 30-second timeout + duplicate rejection prevents indefinite resource pinning |
 | `node` false positives | Medium | Low | Plain Node.js processes match as "claude". Future fix: check command-line args. For now, harmless (session shows up, no conversation events) |
 | Tier 3 transitive false positives | Medium | Low | Non-agent processes (e.g., Python) with Node.js children match as "claude". Future: restrict Tier 3 descendants to version-as-argv[0] patterns |
 | Startup event pressure with many sessions | Low | Low | Lazy tailing makes watcher fast to drain events; 100-event buffer sufficient |
@@ -1147,7 +1290,7 @@ Total per scan cycle:     O(A × C × max|name|)     (all events × all clients 
 
 ## 8. Multi-Model Review Findings
 
-This spec was reviewed by three independent models across two rounds: Codex CLI (gpt-5.3-codex), Gemini CLI (gemini-2.5-pro), and a Claude sub-agent. All findings have been incorporated into the spec above. This section documents the provenance of each fix.
+This spec was reviewed by three independent models across three rounds: Codex CLI (gpt-5.3-codex), Gemini CLI (gemini-2.5-pro), and a Claude sub-agent. All findings have been incorporated into the spec above. This section documents the provenance of each fix.
 
 ### Round 1 Findings
 
@@ -1201,3 +1344,31 @@ Round 2 reviews found that Round 1 fixes introduced new issues and identified ad
 | 39 | IsAgentProcess exact match brittle against future binary renames | Low | Claude | Documented as known limitation (Section 3.1) |
 | 40 | Pre-existing subagent leak in stopWatching not flagged | Low | Claude | Phase 2 deliverable #4 now notes this fixes pre-existing bug (Section 4) |
 | 41 | Server.mu → client.mu lock ordering needs explicit invariant | Medium | Claude | Added 4-level lock ordering documentation (Section 3.4) |
+
+### Round 3 Findings
+
+Round 3 reviews found that the R2 disconnect cleanup fix introduced a double-release bug (confirmed by all three reviewers), the pendingConvSubs mechanism was incomplete (no timeout, no deliverConversationStarted changes, no duplicate handling), and the `filtered: true` approach contradicted the filter-before-send semantics. The `CollectDescendantNames` description was also internally contradictory.
+
+| # | Finding | Severity | Reviewer(s) | Resolution |
+|---|---------|----------|-------------|------------|
+| 42 | Disconnect cleanup double-releases: follow subs in BOTH c.follows AND c.subs | Critical | All three | Iterate only c.subs (superset); removed c.follows loop (Section 3.3) |
+| 43 | pendingConvSubs has no timeout; deliverConversationStarted not updated | Critical | All three | Added 30s timeout, showed deliverConversationStarted changes, added duplicate rejection (Section 3.3) |
+| 44 | extractAgentFromConvID fragile against future ID format changes | High | Claude | Requires 3-part format, validates runtime prefix against known runtimes (Section 3.3) |
+| 45 | CollectDescendantNames "single pgrep" contradicts "recursive walk" | Medium | All three | Clarified: single tree-collection phase with O(depth) pgrep calls; savings from per-runtime dimension (Sections 3.1, helpers) |
+| 46 | Lock ordering invariant missing registry.mu | High | Claude | Added registry.mu as independent lock not in main chain (Section 3.4) |
+| 47 | EnsureTailing agent lookup source ambiguous (registry vs recordAgent) | Medium | Claude, Gemini | Clarified: EnsureTailing looks up from registry (Section 3.3) |
+| 48 | `filtered: true` approach sends all events to all clients, negating bandwidth savings | Medium | Claude, Codex | Switched to approach 2: separate `agents-count` event (Section 3.5) |
+| 49 | startConversationStream derives context from w.ctx, not per-agent context | Medium | Claude | Specified: propagate per-agent ctx through discoverAndTail (Section 3.3) |
+| 50 | CollectDescendantNames in Phase 2 but required by Phase 1's DetectRuntime | Medium | Claude | Moved to Phase 1 deliverable #7 (Section 4) |
+| 51 | subscribedAgents race not in any phase deliverable | Medium | Claude | Added to Phase 3 deliverable #8 (Section 4) |
+| 52 | Follow re-subscribe path: ReleaseTailing → GetBuffer under client.mu | High | Codex, Claude | Analyzed: locks are sequential not nested — safe. Documented in lock ordering (Section 3.4) |
+| 53 | pendingConvSubs not resolved by conversation-switched events; historical IDs can't match | Medium | Claude, Gemini | Documented: pending only works for active conversation; historical times out (Section 3.3) |
+| 54 | `filtered: true` contradicts Section 3.4 filter-before-send + adapter pre-marshaled bytes | High | Codex | Switched to agents-count approach (Section 3.5) |
+| 55 | retryDiscovery uses w.ctx instead of per-agent context | Low | Claude | Included in context propagation fix (Section 3.3) |
+| 56 | GetAgentForConversation referenced but never defined | Low | Claude | Added method definition (Section 3.3) |
+| 57 | pendingConvSubs keyed by convID: duplicate requests overwrite, leaking refs | Critical | Codex | Added duplicate rejection — error on second pending for same convID (Section 3.3) |
+| 58 | Test coverage gaps: no tests for duplicate pending, malformed ID timeout, double-release dedupe | Medium | Codex | Added 6 new test cases (Section 5) |
+| 59 | Legacy clients see all agents (bypass filter via ignored `filtered` flag) | Low | Gemini | Moot — switched to agents-count approach; legacy clients ignore count events (Section 3.5) |
+| 60 | subscribe-conversation with historical/inactive conv IDs fails silently | Low | Gemini | Pending timeout sends explicit error after 30s (Section 3.3) |
+| 61 | Converter Broadcast reads subscribedAgents without c.mu | High | Claude | Fixed: must hold c.mu in broadcast loop (Section 3.4, Phase 3) |
+| 62 | CheckDescendants/checkDescendantsDepth become dead code after CollectDescendantNames | Low | Claude | Noted: remove alongside InferRuntime during Phase 1 (Section 4) |
