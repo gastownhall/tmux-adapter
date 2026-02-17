@@ -12,7 +12,7 @@ body {
 
 .container {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 280px 1fr;
   height: 100vh;
 }
 
@@ -218,6 +218,107 @@ body {
 .sidebar-close {
   margin-left: auto;
   font-size: 20px;
+}
+
+/* --- Tree view --- */
+.tree-view {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 4px;
+  font-size: 12px;
+}
+
+.tree-node {
+  user-select: none;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 26px;
+}
+
+.tree-row:hover { background: #1c2128; }
+.tree-row.selected { background: #1c2128; border: 1px solid #58a6ff; margin: -1px; }
+
+.tree-toggle {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #484f58;
+  font-size: 10px;
+  transition: transform 0.15s;
+}
+
+.tree-toggle.open { transform: rotate(90deg); }
+
+.tree-icon {
+  flex-shrink: 0;
+  font-size: 11px;
+  width: 16px;
+  text-align: center;
+}
+
+.tree-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #c9d1d9;
+}
+
+.tree-meta {
+  margin-left: auto;
+  font-size: 10px;
+  color: #484f58;
+  flex-shrink: 0;
+  padding-left: 4px;
+}
+
+.tree-children {
+  padding-left: 16px;
+}
+
+.tree-children.collapsed {
+  display: none;
+}
+
+/* Session level */
+.tree-session > .tree-row .tree-label { color: #e6edf3; font-weight: 600; }
+.tree-session > .tree-row .tree-icon { color: #58a6ff; }
+
+/* Window level */
+.tree-window > .tree-row .tree-label { color: #c9d1d9; }
+.tree-window > .tree-row .tree-icon { color: #a371f7; }
+
+/* Pane level */
+.tree-pane > .tree-row .tree-label { color: #8b949e; }
+.tree-pane > .tree-row .tree-icon { color: #3fb950; }
+.tree-pane > .tree-row.selected .tree-label { color: #e6edf3; }
+
+.tree-badge-attached {
+  font-size: 9px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #1f6feb33;
+  color: #58a6ff;
+  flex-shrink: 0;
+}
+
+.tree-badge-active {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #3fb950;
+  flex-shrink: 0;
 }
 
 .drawer-backdrop {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/gastownhall/tmux-adapter/internal/agentio"
 	"github.com/gastownhall/tmux-adapter/internal/agents"
+	"github.com/gastownhall/tmux-adapter/internal/tmux"
 )
 
 // Request is a message from a WebSocket client.
@@ -23,15 +24,16 @@ type Request struct {
 
 // Response is a message sent to a WebSocket client.
 type Response struct {
-	ID      string         `json:"id,omitempty"`
-	Type    string         `json:"type"`
-	OK      *bool          `json:"ok,omitempty"`
-	Error   string         `json:"error,omitempty"`
-	Agents  []agents.Agent `json:"agents,omitempty"`
-	History string         `json:"history,omitempty"`
-	Agent   *agents.Agent  `json:"agent,omitempty"`
-	Name    string         `json:"name,omitempty"`
-	Data    string         `json:"data,omitempty"`
+	ID      string                 `json:"id,omitempty"`
+	Type    string                 `json:"type"`
+	OK      *bool                  `json:"ok,omitempty"`
+	Error   string                 `json:"error,omitempty"`
+	Agents  []agents.Agent         `json:"agents,omitempty"`
+	History string                 `json:"history,omitempty"`
+	Agent   *agents.Agent          `json:"agent,omitempty"`
+	Name    string                 `json:"name,omitempty"`
+	Data    string                 `json:"data,omitempty"`
+	Tree    []tmux.TmuxSessionNode `json:"tree,omitempty"`
 }
 
 // handleMessage routes a text request to the appropriate handler.
@@ -49,6 +51,8 @@ func handleMessage(c *Client, req Request) {
 		handleSubscribeAgents(c, req)
 	case "unsubscribe-agents":
 		handleUnsubscribeAgents(c, req)
+	case "list-tmux-tree":
+		handleListTmuxTree(c, req)
 	default:
 		c.sendError(req.ID, "unknown message type: "+req.Type)
 	}
@@ -224,11 +228,15 @@ func handleSubscribeOutput(c *Client, req Request) {
 		return
 	}
 
-	_, ok := c.server.registry.GetAgent(req.Agent)
-	if !ok {
-		okVal := false
-		c.sendJSON(Response{ID: req.ID, Type: "subscribe-output", OK: &okVal, Error: "agent not found"})
-		return
+	// For agent-mode targets, verify the agent exists in the registry.
+	// Pane targets (containing ":") are raw tmux targets that bypass the registry.
+	if !strings.Contains(req.Agent, ":") {
+		_, ok := c.server.registry.GetAgent(req.Agent)
+		if !ok {
+			okVal := false
+			c.sendJSON(Response{ID: req.ID, Type: "subscribe-output", OK: &okVal, Error: "agent not found"})
+			return
+		}
 	}
 
 	// Check if streaming is requested (default: true)
@@ -364,6 +372,19 @@ func handleUnsubscribeAgents(c *Client, req Request) {
 
 	okVal := true
 	c.sendJSON(Response{ID: req.ID, Type: "unsubscribe-agents", OK: &okVal})
+}
+
+func handleListTmuxTree(c *Client, req Request) {
+	tree, err := c.server.ctrl.GetTmuxTree()
+	if err != nil {
+		c.sendError(req.ID, "list-tmux-tree: "+err.Error())
+		return
+	}
+	c.sendJSON(Response{
+		ID:   req.ID,
+		Type: "list-tmux-tree",
+		Tree: tree,
+	})
 }
 
 // MakeAgentEvent creates a JSON event message for agent lifecycle changes.
