@@ -10,6 +10,7 @@ func TestIsAgentProcess(t *testing.T) {
 	}{
 		{"node", []string{"node", "claude"}, true},
 		{"claude", []string{"node", "claude"}, true},
+		{"codex-aarch64-a", []string{"codex"}, true},
 		{"python", []string{"node", "claude"}, false},
 		{"", []string{"node", "claude"}, false},
 	}
@@ -56,6 +57,7 @@ func TestDetectRuntime_Tier1_DirectMatch(t *testing.T) {
 		{"node", "claude"},
 		{"gemini", "gemini"},
 		{"codex", "codex"},
+		{"codex-aarch64-a", "codex"},
 		{"cursor-agent", "cursor"},
 		{"auggie", "auggie"},
 		{"amp", "amp"},

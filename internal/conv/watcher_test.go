@@ -640,11 +640,113 @@ func TestWatcherReleaseTailingNonExistent(t *testing.T) {
 	w.Stop()
 }
 
+func TestSelectMainConversationFile_DistributesSameWorkdirAgents(t *testing.T) {
+	oldResolver := resolveRuntimeSessionIDFunc
+	resolveRuntimeSessionIDFunc = func(_, _ string) string { return "" }
+	defer func() { resolveRuntimeSessionIDFunc = oldResolver }()
+
+	ctrl := &mockCtrl{
+		sessions: []tmux.SessionInfo{
+			{Name: "271", Attached: false},
+			{Name: "273", Attached: true},
+		},
+		panes: map[string]tmux.PaneInfo{
+			"271": {Command: "claude", PID: "pid-271", WorkDir: "/tmp/shared"},
+			"273": {Command: "claude", PID: "pid-273", WorkDir: "/tmp/shared"},
+		},
+		notifCh: make(chan tmux.Notification, 10),
+	}
+	registry := agents.NewRegistry(ctrl, "", nil)
+	if err := registry.Start(); err != nil {
+		t.Fatalf("registry.Start() error: %v", err)
+	}
+	t.Cleanup(registry.Stop)
+	drainRegistryEvents(registry) // initial added events
+
+	w := NewConversationWatcher(registry, 100)
+	defer w.Stop()
+
+	files := []ConversationFile{
+		{NativeConversationID: "newest", ConversationID: "claude:agent:newest"},
+		{NativeConversationID: "older", ConversationID: "claude:agent:older"},
+	}
+
+	agent273, ok := registry.GetAgent("273")
+	if !ok {
+		t.Fatal("missing agent 273")
+	}
+	selected273, _ := w.selectMainConversationFile(agent273, files)
+	if selected273.NativeConversationID != "newest" {
+		t.Fatalf("agent 273 selected %q, want newest", selected273.NativeConversationID)
+	}
+
+	agent271, ok := registry.GetAgent("271")
+	if !ok {
+		t.Fatal("missing agent 271")
+	}
+	selected271, _ := w.selectMainConversationFile(agent271, files)
+	if selected271.NativeConversationID != "older" {
+		t.Fatalf("agent 271 selected %q, want older", selected271.NativeConversationID)
+	}
+}
+
+func TestSelectMainConversationFile_UsesResumeHint(t *testing.T) {
+	oldResolver := resolveRuntimeSessionIDFunc
+	resolveRuntimeSessionIDFunc = func(runtime, pid string) string {
+		if runtime == "claude" && pid == "pid-57" {
+			return "26a96967-588d-4c9b-a1b2-5b4eb8af29fd"
+		}
+		return ""
+	}
+	defer func() { resolveRuntimeSessionIDFunc = oldResolver }()
+
+	ctrl := &mockCtrl{
+		sessions: []tmux.SessionInfo{{Name: "57", Attached: false}},
+		panes: map[string]tmux.PaneInfo{
+			"57": {Command: "claude", PID: "pid-57", WorkDir: "/tmp/web3"},
+		},
+		notifCh: make(chan tmux.Notification, 10),
+	}
+	registry := agents.NewRegistry(ctrl, "", nil)
+	if err := registry.Start(); err != nil {
+		t.Fatalf("registry.Start() error: %v", err)
+	}
+	t.Cleanup(registry.Stop)
+	drainRegistryEvents(registry) // initial added event
+
+	w := NewConversationWatcher(registry, 100)
+	defer w.Stop()
+
+	files := []ConversationFile{
+		{NativeConversationID: "c1b3f9cf-c93f-4865-833e-6c7b1aea1e78", ConversationID: "claude:57:c1b3"},
+		{NativeConversationID: "26a96967-588d-4c9b-a1b2-5b4eb8af29fd", ConversationID: "claude:57:26a9"},
+	}
+
+	agent57, ok := registry.GetAgent("57")
+	if !ok {
+		t.Fatal("missing agent 57")
+	}
+	selected, _ := w.selectMainConversationFile(agent57, files)
+	if selected.NativeConversationID != "26a96967-588d-4c9b-a1b2-5b4eb8af29fd" {
+		t.Fatalf("selected %q, want resume-matched ID", selected.NativeConversationID)
+	}
+}
+
 // drainWatcherEvents drains all buffered events from a watcher's event channel.
 func drainWatcherEvents(w *ConversationWatcher) {
 	for {
 		select {
 		case <-w.Events():
+		default:
+			return
+		}
+	}
+}
+
+func drainRegistryEvents(r *agents.Registry) {
+	for {
+		select {
+		case <-r.Events():
 		default:
 			return
 		}

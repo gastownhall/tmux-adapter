@@ -99,8 +99,14 @@ tmux-adapter (main.go)                     tmux-converter (cmd/tmux-converter/ma
     │  internal/agents/detect.go   Agent struct,       │
     │                              runtime detection   │
     │  internal/agents/registry.go scan/diff/events    │
+    │  internal/agents/control.go  ControlModeInterface│
+    │  internal/agentio/binary.go  Binary protocol     │
+    │  internal/agentio/prompt.go  Prompter            │
+    │  internal/agentio/fileupload.go File uploads     │
     │  internal/wsbase/auth.go     shared auth logic   │
     │  internal/wsbase/upgrader.go shared WS upgrade   │
+    │  internal/wsbase/cors.go     CORS middleware     │
+    │  internal/wsbase/filters.go  session/path filters│
     └──────────────────────────────────────────────────┘
 ```
 
@@ -117,7 +123,12 @@ tmux-adapter (main.go)                     tmux-converter (cmd/tmux-converter/ma
 │   │   └── pipepane.go                # PipePaneManager (adapter only)
 │   ├── agents/                        # SHARED: agent detection & registry
 │   │   ├── detect.go                  # Agent struct, process detection
-│   │   └── registry.go               # Registry scan/diff/events (accepts skip-list)
+│   │   ├── registry.go               # Registry scan/diff/events (accepts skip-list)
+│   │   └── control.go                # ControlModeInterface: abstraction for testing with mocks
+│   ├── agentio/                       # SHARED: binary protocol, prompts, file uploads
+│   │   ├── binary.go                  # Binary protocol constants + ParseBinaryEnvelope
+│   │   ├── prompt.go                  # Prompter: per-agent mutex, NudgeSession delivery
+│   │   └── fileupload.go             # File upload handling: save, clipboard copy, paste
 │   ├── adapter/                       # tmux-adapter wiring
 │   │   └── adapter.go
 │   ├── converter/                     # tmux-converter wiring
@@ -129,16 +140,19 @@ tmux-adapter (main.go)                     tmux-converter (cmd/tmux-converter/ma
 │   │   ├── discovery.go              # Claude file discovery (path encoding: / and _ → -)
 │   │   ├── event.go                   # ConversationEvent: unified event model
 │   │   └── claude.go                  # Claude Code JSONL parser
-│   ├── wsbase/                        # SHARED: auth, origin checks
+│   ├── wsbase/                        # SHARED: auth, origin checks, CORS, filters
 │   │   ├── auth.go                    # Bearer token + constant-time comparison
-│   │   └── upgrader.go                # WebSocket upgrade with origin pattern matching
+│   │   ├── upgrader.go                # WebSocket upgrade with origin pattern matching
+│   │   ├── cors.go                    # CORS middleware (permissive, no-store caching)
+│   │   └── filters.go                 # Session/path include/exclude regex filter compilation
 │   ├── wsadapter/                     # tmux-adapter protocol (JSON+binary)
 │   │   ├── server.go                  # Adapter-specific server
 │   │   ├── handler.go                 # Message routing
-│   │   ├── client.go                  # Per-connection state, read/write pumps
-│   │   └── file_upload.go             # Binary 0x04 handling
+│   │   └── client.go                  # Per-connection state, read/write pumps
 │   └── wsconv/                        # tmux-converter protocol (JSON-only)
-│       └── server.go                  # Converter WS server (snapshot cap: 20k events)
+│       ├── server.go                  # Converter WS server (snapshot cap: 20k events)
+│       ├── handler.go                 # Message routing: JSON + binary file uploads
+│       └── client.go                  # Per-connection state, read/write pumps
 ├── web/tmux-adapter-web/              # embedded web component (adapter)
 ├── samples/
 │   ├── adapter.html                   # Adapter dashboard
@@ -653,7 +667,7 @@ This ensures no events are missed between snapshot and live — the lock prevent
 
 ### 4.7 WebSocket Protocol (`internal/wsconv/handler.go`)
 
-JSON-only WebSocket protocol for tmux-converter.
+JSON-only WebSocket protocol for tmux-converter. The full wire protocol reference is in `specs/converter-api.md` — this section describes design intent and implementation details.
 
 **Protocol handshake (required first message)**:
 
@@ -783,7 +797,7 @@ Main initialization and shutdown orchestration.
 func New(opts Options) (*Converter, error)
 
 type Options struct {
-    GtDir               string        // gastown town directory
+    WorkDir             string        // optional working directory filter (empty = all agents)
     ListenAddr          string        // e.g. "127.0.0.1:8081"
     AuthToken           string
     OriginPattern       string
@@ -821,7 +835,7 @@ type Options struct {
 
 **CLI flags**:
 ```
---gt-dir DIR              Gastown town directory (required)
+--work-dir DIR            Optional working directory filter — only track agents under this path (empty = all)
 --listen ADDR             Listen address (default: 127.0.0.1:8081)
 --auth-token TOKEN        Bearer auth token (required when listen is non-loopback)
 --insecure-no-auth        Explicit opt-in for unauthenticated non-loopback binds
@@ -849,7 +863,7 @@ type Options struct {
 5. If non-loopback AND `--auth-token` is NOT set AND `--insecure-no-auth` is NOT set: **refuse to start** with error
 
 **Acceptance criteria**:
-- Binary builds and starts with `go build -o tmux-converter ./cmd/tmux-converter/ && ./tmux-converter --gt-dir ~/gt`
+- Binary builds and starts with `go build -o tmux-converter ./cmd/tmux-converter/ && ./tmux-converter --listen :8081`
 - Connects to tmux, discovers agents, starts streaming within 10 seconds of startup
 - Graceful shutdown: no goroutine leaks, all connections closed
 - Health/readiness endpoints respond correctly

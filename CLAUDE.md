@@ -41,70 +41,65 @@ make test           # go test ./...
 make vet            # go vet ./...
 make lint           # golangci-lint run (requires golangci-lint installed)
 go test ./internal/tmux/    # single package
-go test ./internal/ws/ -run TestParseFileUpload   # single test
+go test ./internal/agentio/ -run TestParseFileUpload   # single test
 ```
 
 ## Architecture
 
 Two services that expose AI coding agents running in tmux sessions. tmux is the internal implementation detail — clients never see it.
 
+### Shared packages
+
+```
+internal/agentio/                Shared between adapter and converter
+    ├── binary.go                Binary protocol constants + ParseBinaryEnvelope (0x01–0x05)
+    ├── prompt.go                Prompter: per-agent mutex, NudgeSession delivery sequence
+    └── fileupload.go            File upload handling: save, clipboard copy, paste into tmux
+
+internal/agents/
+    ├── registry.go              Registry: watches tmux notifications → scans → diffs → emits lifecycle events
+    ├── detect.go                Agent detection: env vars, process tree walking, runtime inference
+    └── control.go               ControlModeInterface: abstraction for testing with mocks
+
+internal/tmux/
+    ├── control.go               ControlMode: single tmux -C connection, %begin/%end parsing
+    ├── commands.go              High-level tmux operations (ListSessions, SendKeysLiteral, CapturePaneAll, etc.)
+    └── pipepane.go              PipePaneManager: ref-counted per-agent output streaming via pipe-pane -o
+
+internal/wsbase/
+    ├── auth.go                  Bearer token + constant-time comparison
+    ├── upgrader.go              WebSocket upgrade with origin pattern matching
+    ├── cors.go                  CORS middleware (permissive, no-store caching)
+    └── filters.go               Session/path include/exclude regex filter compilation
+```
+
 ### Adapter (raw terminal streaming)
 
 ```
 main.go → adapter.New() → wires everything together
-                │
-                ├── internal/tmux/control.go       ControlMode: single tmux -C connection
-                │                                  Serialized command execution with %begin/%end parsing
-                │                                  Notifications channel for %sessions-changed, %window-renamed events
-                │
-                ├── internal/tmux/commands.go      High-level tmux operations built on ControlMode.Execute()
-                │                                  ListSessions, SendKeysLiteral, CapturePaneAll, ResizePaneTo, etc.
-                │
-                ├── internal/tmux/pipepane.go      PipePaneManager: per-agent output streaming via pipe-pane -o
-                │                                  Ref-counted: activates on first subscriber, deactivates on last
-                │
-                ├── internal/agents/registry.go    Registry: watches %sessions-changed + %window-renamed → scans → diffs → emits events
-                │                                  Events channel feeds into wsadapter.Server for lifecycle broadcasts
-                │
-                ├── internal/agents/detect.go      Agent detection: env vars, process tree walking, runtime inference
-                │                                  Handles shells wrapping agents, version-as-argv[0] (Claude "2.1.38")
-                │
-                ├── internal/wsbase/auth.go        Shared auth: bearer token + constant-time comparison
-                ├── internal/wsbase/upgrader.go    Shared WebSocket upgrade with origin pattern matching
-                │
-                ├── internal/wsadapter/server.go   Adapter WebSocket server: accept, auth, client lifecycle
-                ├── internal/wsadapter/handler.go  Message routing: JSON requests + binary frames
-                │                                  NudgeSession: literal send → Escape → Enter (3x retry) → SIGWINCH wake
-                ├── internal/wsadapter/client.go   Per-connection state, read/write pumps
-                ├── internal/wsadapter/file_upload.go  Binary 0x04 handling: save file, paste path/contents into tmux
-                │
-                ├── web/tmux-adapter-web/          Reusable terminal web component (embedded, served at /tmux-adapter-web/)
-                │
-                └── samples/adapter.html           Gastown Dashboard sample (imports component from adapter server)
+    ├── internal/adapter/adapter.go    Startup/shutdown orchestration, HTTP mux
+    ├── internal/wsadapter/server.go   WebSocket server: accept, auth, client lifecycle
+    ├── internal/wsadapter/handler.go  Message routing: JSON requests + binary frames
+    ├── internal/wsadapter/client.go   Per-connection state, read/write pumps
+    ├── web/tmux-adapter-web/          Reusable terminal web component (embedded via go:embed)
+    └── samples/adapter.html           Gastown Dashboard sample
 ```
 
 ### Converter (structured conversation streaming)
 
 ```
 cmd/tmux-converter/main.go → converter.New() → wires everything together
-                │
-                ├── internal/converter/converter.go   Startup/shutdown orchestration, HTTP mux
-                │
-                ├── internal/conv/watcher.go       ConversationWatcher: registry events → discovery → tailer → parser → buffer
-                │                                  Streams only the active conversation (most recent file) per agent
-                │                                  Inactive conversations (older files) have stable IDs for future on-demand loading
-                ├── internal/conv/discovery.go      Claude file discovery: workdir → path encoding → .jsonl scan
-                │                                  Path encoding: both / and _ replaced with -
-                ├── internal/conv/claude.go         Claude Code JSONL parser → ConversationEvent
-                ├── internal/conv/tailer.go         JSONL file tailer with fsnotify + poll fallback
-                ├── internal/conv/buffer.go         Per-conversation ring buffer (100k events) with snapshot + subscribe
-                ├── internal/conv/event.go          ConversationEvent model: unified event schema
-                │
-                ├── internal/wsconv/server.go       Converter WebSocket server: JSON-only protocol
-                │                                  Handles hello, follow-agent, subscribe-conversation, list-agents, etc.
-                │                                  Server-side snapshot cap: 20,000 events max per response
-                │
-                └── samples/converter.html          Converter Dashboard: structured conversation viewer
+    ├── internal/converter/converter.go   Startup/shutdown orchestration, HTTP mux
+    ├── internal/conv/watcher.go          Registry events → discovery → tailer → parser → buffer
+    ├── internal/conv/discovery.go        Claude file discovery: workdir → path encoding → .jsonl scan
+    ├── internal/conv/claude.go           Claude Code JSONL parser → ConversationEvent
+    ├── internal/conv/tailer.go           JSONL file tailer with fsnotify + poll fallback
+    ├── internal/conv/buffer.go           Per-conversation ring buffer (100k events) with snapshot + subscribe
+    ├── internal/conv/event.go            ConversationEvent model: unified event schema
+    ├── internal/wsconv/server.go         WebSocket server: JSON-only protocol, snapshot cap 20k events
+    ├── internal/wsconv/handler.go        Message routing: JSON + binary file uploads via agentio.Prompter
+    ├── internal/wsconv/client.go         Per-connection state, read/write pumps
+    └── samples/converter.html            Converter Dashboard: structured conversation viewer
 ```
 
 ### Key data flows
@@ -120,13 +115,17 @@ cmd/tmux-converter/main.go → converter.New() → wires everything together
 - **Conversation streaming**: agent detected → discovery finds `~/.claude/projects/{encoded-workdir}/*.jsonl` → tails only the active (most recent) file → parser normalizes to ConversationEvent → buffer stores → WebSocket broadcasts to subscribers. Older files are inactive conversations with stable ConversationIDs, available for future on-demand loading as independent threads.
 - **follow-agent**: client follows agent name → auto-subscribes to current conversation → snapshot + live events → auto-switches on conversation rotation
 
-### Binary protocol (adapter only)
+### Binary protocol (adapter)
 
 Mixed JSON + binary over a single WebSocket at `/ws`. JSON for control messages, binary for terminal I/O. Binary frame format: `msgType(1) + agentName(utf8) + \0 + payload`.
 
 ### JSON protocol (converter)
 
-JSON-only WebSocket at `/ws`. Protocol handshake required (`hello` with `protocol: "tmux-converter.v1"`). Key message types: `list-agents`, `subscribe-agents`, `follow-agent`, `subscribe-conversation`, `unsubscribe-agent`.
+JSON-only WebSocket at `/ws`. Protocol handshake required (`hello` with `protocol: "tmux-converter.v1"`). Key message types: `list-agents`, `subscribe-agents`, `follow-agent`, `subscribe-conversation`, `unsubscribe-agent`. Also accepts binary frames for file uploads (0x04) via the shared agentio.Prompter.
+
+### Engineering standards
+
+See `ARCHITECTURE.md` — TDD-first, no swallowed errors, `make check` must pass before any change is complete.
 
 ## Local Dependencies
 

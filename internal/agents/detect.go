@@ -14,6 +14,9 @@ type Agent struct {
 	Runtime  string `json:"runtime"`  // detected runtime (claude, gemini, codex, etc.)
 	WorkDir  string `json:"workDir"`  // pane working directory
 	Attached bool   `json:"attached"` // session attached status
+	// Internal fields used for runtime-specific discovery heuristics.
+	PanePID     string `json:"-"`
+	PaneCommand string `json:"-"`
 }
 
 // runtimeProcessNames maps agent runtime names to the process names they run as.
@@ -46,7 +49,14 @@ var collectDescendantNamesFunc = CollectDescendantNames
 
 // IsAgentProcess checks if a pane command matches any of the expected process names.
 func IsAgentProcess(command string, processNames []string) bool {
-	return slices.Contains(processNames, command)
+	if slices.Contains(processNames, command) {
+		return true
+	}
+	// Codex binaries can appear as codex platform wrappers (e.g. codex-aarch64-a).
+	if slices.Contains(processNames, "codex") && strings.HasPrefix(command, "codex-") {
+		return true
+	}
+	return false
 }
 
 // IsShell checks if the command is a known shell.

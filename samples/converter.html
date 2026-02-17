@@ -412,6 +412,9 @@ function handleMessage(msg) {
           currentConvId = msg.conversationId;
           pendingChunks = { events: [] };
           converterEl.showWaiting('Loading conversation...');
+        } else if (msg.conversationSupported === false) {
+          pendingChunks = null;
+          converterEl.showWaiting('Conversation streaming is not supported for this runtime yet.');
         } else {
           pendingChunks = null;
           converterEl.showWaiting('No conversation yet \u2014 waiting for activity...');

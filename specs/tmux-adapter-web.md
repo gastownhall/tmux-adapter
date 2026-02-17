@@ -50,7 +50,9 @@ tmux-adapter/
 ├── main.go                   # Go service entry point
 ├── internal/                 # Go service internals
 │   ├── tmux/
-│   └── ws/
+│   ├── wsadapter/
+│   ├── wsbase/
+│   └── agentio/
 ├── go.mod
 ├── web/
 │   ├── embed.go              # go:embed directive — bakes component into the binary

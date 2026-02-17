@@ -149,10 +149,12 @@ func (r *Registry) scan() error {
 		}
 
 		discovered[sess.Name] = Agent{
-			Name:     sess.Name,
-			Runtime:  runtime,
-			WorkDir:  pane.WorkDir,
-			Attached: sess.Attached,
+			Name:        sess.Name,
+			Runtime:     runtime,
+			WorkDir:     pane.WorkDir,
+			Attached:    sess.Attached,
+			PanePID:     pane.PID,
+			PaneCommand: pane.Command,
 		}
 	}
 
@@ -176,7 +178,9 @@ func (r *Registry) scan() error {
 			pendingEvents = append(pendingEvents, RegistryEvent{Type: "added", Agent: newAgent})
 		} else if oldAgent.Attached != newAgent.Attached ||
 			oldAgent.Runtime != newAgent.Runtime ||
-			oldAgent.WorkDir != newAgent.WorkDir {
+			oldAgent.WorkDir != newAgent.WorkDir ||
+			oldAgent.PanePID != newAgent.PanePID ||
+			oldAgent.PaneCommand != newAgent.PaneCommand {
 			r.agents[name] = newAgent
 			pendingEvents = append(pendingEvents, RegistryEvent{Type: "updated", Agent: newAgent})
 		}

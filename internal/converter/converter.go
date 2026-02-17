@@ -58,7 +58,7 @@ func (c *Converter) Start() error {
 	}
 	log.Printf("converter: agent registry started (%d agents found)", len(c.registry.GetAgents()))
 
-	// Set up conversation watcher with Claude discoverer/parser
+	// Set up conversation watcher with runtime-specific discoverers/parsers
 	c.watcher = conv.NewConversationWatcher(c.registry, 100000)
 
 	claudeRoot := filepath.Join(os.Getenv("HOME"), ".claude")
@@ -66,6 +66,13 @@ func (c *Converter) Start() error {
 		conv.NewClaudeDiscoverer(claudeRoot),
 		func(agentName, convID string) conv.Parser {
 			return conv.NewClaudeParser(agentName, convID)
+		},
+	)
+	codexRoot := filepath.Join(os.Getenv("HOME"), ".codex", "sessions")
+	c.watcher.RegisterRuntime("codex",
+		conv.NewCodexDiscoverer(codexRoot),
+		func(agentName, convID string) conv.Parser {
+			return conv.NewCodexParser(agentName, convID)
 		},
 	)
 
@@ -164,4 +171,3 @@ func (c *Converter) Stop() {
 
 	log.Println("converter: shutdown complete")
 }
-

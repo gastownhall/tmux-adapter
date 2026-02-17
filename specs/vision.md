@@ -4,11 +4,11 @@ The tmux-adapter is a service that exposes gastown agents as a programmatic inte
 
 ## What It Does
 
-- **Lists agents** — the current set of running agents with their metadata: what kind they are (Claude Code, Gemini, Codex, etc.), what folder they're in, their name, and their gastown role (Mayor, Deacon, Crew, etc.).
+- **Lists agents** — the current set of running agents with their metadata: what kind they are (Claude Code, Gemini, Codex, etc.), what folder they're in, and their name.
 - **Streams agent output** — a client can ask for any agent's full history so far and optionally subscribe for streaming updates, in one atomic call so nothing is missed between the history snapshot and the first streaming event.
 - **Sends prompts** — a client sends text to an agent and Enter is implied. The adapter handles all the delivery mechanics.
 - **Tracks agent lifecycle** — clients subscribe to be notified when an agent becomes active or is deactivated. This means real agents, not zombie tmux sessions.
-- **Scopes to a gastown instance** — the client specifies which gastown to watch by folder, defaulting to `~/gt`.
+- **Scopes by working directory** — the client can optionally specify a working directory filter to watch only agents under a given path (default: all agents).
 
 ## What It Wraps
 
@@ -18,7 +18,7 @@ Gastown runs agents in tmux sessions. The adapter connects to the tmux server al
 - Streaming output = tmux pipe-pane
 - Sending prompts = the NudgeSession pattern (literal send, debounce, Escape, Enter with retry, wake)
 - Tracking lifecycle = tmux control mode events
-- Agent metadata = tmux session environment variables (GT_AGENT, GT_ROLE, GT_RIG) + pane working directory
+- Agent metadata = detected runtime process + pane working directory
 
 Gastown supports 7 agent runtimes (Claude, Gemini, Codex, Cursor, Auggie, Amp, OpenCode) and the adapter handles all of them transparently.
 

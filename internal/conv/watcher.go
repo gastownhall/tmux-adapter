@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -15,11 +16,11 @@ import (
 
 // WatcherEvent represents a lifecycle or conversation event from the watcher.
 type WatcherEvent struct {
-	Type      string              // "agent-added", "agent-removed", "agent-updated", "conversation-started", "conversation-switched", "conversation-event"
-	Agent     *agents.Agent       // for lifecycle events
-	Event     *ConversationEvent  // for conversation events
-	OldConvID string              // for conversation-switched events
-	NewConvID string              // for conversation-started and conversation-switched events
+	Type      string             // "agent-added", "agent-removed", "agent-updated", "conversation-started", "conversation-switched", "conversation-event"
+	Agent     *agents.Agent      // for lifecycle events
+	Event     *ConversationEvent // for conversation events
+	OldConvID string             // for conversation-switched events
+	NewConvID string             // for conversation-started and conversation-switched events
 }
 
 type fileStream struct {
@@ -42,6 +43,9 @@ type tailingState struct {
 	cancelFunc context.CancelFunc
 	graceTimer *time.Timer
 }
+
+// resolveRuntimeSessionIDFunc is replaceable in tests.
+var resolveRuntimeSessionIDFunc = resolveRuntimeSessionID
 
 // ConversationWatcher orchestrates discovery, tailing, and parsing for all active agents.
 type ConversationWatcher struct {
@@ -392,9 +396,10 @@ func (w *ConversationWatcher) discoverAndTail(ctx context.Context, agent agents.
 	}
 
 	if len(mainFiles) > 0 {
-		// Most recent file is first — it becomes the active conversation.
-		// Only stream the current conversation file; older files are past sessions.
-		currentFile := mainFiles[0]
+		// Prefer an explicit runtime session hint (e.g. --resume ID) when available.
+		// Otherwise deterministically assign unique files across agents sharing the
+		// same runtime + workdir so they don't collapse onto the newest file.
+		currentFile, _ := w.selectMainConversationFile(agent, mainFiles)
 		w.startConversationStream(ctx, agent, currentFile)
 	}
 
@@ -404,6 +409,89 @@ func (w *ConversationWatcher) discoverAndTail(ctx context.Context, agent agents.
 			w.startConversationStream(ctx, agent, f)
 		}
 	}
+}
+
+// selectMainConversationFile picks the active main conversation file for an agent.
+// Order of preference:
+// 1) Explicit runtime session hint (e.g. claude --resume <id>)
+// 2) Deterministic unique assignment among peers with same runtime+workdir
+// 3) Newest file fallback
+func (w *ConversationWatcher) selectMainConversationFile(agent agents.Agent, mainFiles []ConversationFile) (ConversationFile, bool) {
+	if len(mainFiles) == 0 {
+		return ConversationFile{}, false
+	}
+
+	filesByNativeID := make(map[string]ConversationFile, len(mainFiles))
+	for _, f := range mainFiles {
+		filesByNativeID[f.NativeConversationID] = f
+	}
+
+	// First choice: explicit runtime resume hint from process args.
+	if sessionID := resolveRuntimeSessionIDFunc(agent.Runtime, agent.PanePID); sessionID != "" {
+		if f, ok := filesByNativeID[sessionID]; ok {
+			return f, true
+		}
+	}
+
+	// Second choice: distribute files deterministically among peers sharing
+	// runtime+workdir so each session gets a distinct conversation when possible.
+	allAgents := w.registry.GetAgents()
+	peers := make([]agents.Agent, 0, len(allAgents))
+	for _, a := range allAgents {
+		if a.Runtime == agent.Runtime && a.WorkDir == agent.WorkDir {
+			peers = append(peers, a)
+		}
+	}
+	if len(peers) <= 1 {
+		return mainFiles[0], true
+	}
+
+	claimed := make(map[string]bool)
+	unresolved := make([]agents.Agent, 0, len(peers))
+
+	for _, peer := range peers {
+		sessionID := resolveRuntimeSessionIDFunc(peer.Runtime, peer.PanePID)
+		if sessionID != "" {
+			if f, ok := filesByNativeID[sessionID]; ok {
+				if peer.Name == agent.Name {
+					return f, true
+				}
+				claimed[f.NativeConversationID] = true
+				continue
+			}
+		}
+		unresolved = append(unresolved, peer)
+	}
+
+	available := make([]ConversationFile, 0, len(mainFiles))
+	for _, f := range mainFiles {
+		if !claimed[f.NativeConversationID] {
+			available = append(available, f)
+		}
+	}
+	if len(available) == 0 {
+		return mainFiles[0], true
+	}
+
+	sort.Slice(unresolved, func(i, j int) bool {
+		if unresolved[i].Attached != unresolved[j].Attached {
+			return unresolved[i].Attached // attached first
+		}
+		return unresolved[i].Name < unresolved[j].Name
+	})
+
+	agentIndex := -1
+	for i, peer := range unresolved {
+		if peer.Name == agent.Name {
+			agentIndex = i
+			break
+		}
+	}
+	if agentIndex >= 0 && agentIndex < len(available) {
+		return available[agentIndex], true
+	}
+
+	return available[0], true
 }
 
 func (w *ConversationWatcher) startConversationStream(ctx context.Context, agent agents.Agent, file ConversationFile) {

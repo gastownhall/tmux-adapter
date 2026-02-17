@@ -8,8 +8,7 @@ A WebSocket service that exposes [gastown](https://github.com/steveyegge/gastown
 
 ```bash
 go build -o bin/tmux-adapter .
-gt start
-bin/tmux-adapter --gt-dir ~/gt --port 8080
+bin/tmux-adapter --port 8080
 ```
 
 Connect with any WebSocket client:
@@ -25,7 +24,7 @@ The Gastown Dashboard lives in `samples/adapter.html` — a consumer of the WebS
 **Quick (single port, development):**
 
 ```bash
-bin/tmux-adapter --gt-dir ~/gt --port 8080 --debug-serve-dir ./samples
+bin/tmux-adapter --port 8080 --debug-serve-dir ./samples
 open http://localhost:8080
 ```
 
@@ -33,7 +32,7 @@ open http://localhost:8080
 
 ```bash
 # Terminal 1: start the adapter
-bin/tmux-adapter --gt-dir ~/gt --port 8080
+bin/tmux-adapter --port 8080
 
 # Terminal 2: serve the sample
 python3 -m http.server 8000 --directory samples
@@ -54,7 +53,7 @@ The simplest approach uses `--debug-serve-dir` so only one ngrok tunnel is neede
 
 ```bash
 # 1. Start the adapter serving the sample
-bin/tmux-adapter --gt-dir ~/gt --port 8080 --debug-serve-dir ./samples
+bin/tmux-adapter --port 8080 --debug-serve-dir ./samples
 
 # 2. Expose via ngrok (single tunnel)
 ngrok http 8080
@@ -102,8 +101,8 @@ msgType(1 byte) + agentName(utf8) + 0x00 + payload(bytes)
 ```json
 → {"id":"1", "type":"list-agents"}
 ← {"id":"1", "type":"list-agents", "agents":[
-    {"name":"hq-mayor", "role":"mayor", "runtime":"claude", "rig":null, "workDir":"/Users/me/gt", "attached":false},
-    {"name":"gt-myrig-crew-bob", "role":"crew", "runtime":"claude", "rig":"myrig", "workDir":"/Users/me/gt/myrig/crew/bob", "attached":false}
+    {"name":"my-project", "runtime":"claude", "workDir":"/Users/me/code/my-project", "attached":false},
+    {"name":"research", "runtime":"gemini", "workDir":"/Users/me/code/research", "attached":false}
   ]}
 ```
 
@@ -178,21 +177,17 @@ Unsubscribe:
 
 ```json
 {
-  "name": "hq-mayor",
-  "role": "mayor",
+  "name": "my-project",
   "runtime": "claude",
-  "rig": null,
-  "workDir": "/Users/me/gt",
+  "workDir": "/Users/me/code/my-project",
   "attached": false
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `name` | string | Session identifier (`hq-mayor`, `gt-myrig-crew-bob`) |
-| `role` | string | `mayor`, `deacon`, `overseer`, `witness`, `refinery`, `crew`, `polecat`, `boot` |
-| `runtime` | string | `claude`, `gemini`, `codex`, `cursor`, `auggie`, `amp`, `opencode` |
-| `rig` | string? | Rig name for rig-level agents, `null` for town-level |
+| `name` | string | Agent identifier (tmux session name) |
+| `runtime` | string | Detected agent runtime: `claude`, `gemini`, `codex`, `cursor`, `auggie`, `amp`, `opencode` |
 | `workDir` | string | Agent's working directory |
 | `attached` | bool | Whether a human is viewing the session |
 
@@ -200,20 +195,21 @@ Only agents with a live process are exposed — zombie sessions are filtered out
 
 ## tmux-converter
 
-A companion service that streams **structured conversation events** from CLI AI agents over WebSocket. Instead of raw terminal bytes, it watches the conversation files agents write to disk (`.jsonl` for Claude Code) and streams normalized JSON events.
+A companion service that streams **structured conversation events** from CLI AI agents over WebSocket. Instead of raw terminal bytes, it watches the conversation files agents write to disk (`.jsonl` for Claude Code) and streams normalized JSON events. The API is the primary interface — any WebSocket client can connect. The optional `<tmux-converter-web>` web component and sample dashboard are conveniences for quick visualization.
+
+See `specs/converter-api.md` for the complete API reference.
 
 ### Quick Start
 
 ```bash
 go build -o bin/tmux-converter ./cmd/tmux-converter/
-gt start
-bin/tmux-converter --gt-dir ~/gt --listen :8081
+bin/tmux-converter --listen :8081
 ```
 
 ### Converter Dashboard
 
 ```bash
-bin/tmux-converter --gt-dir ~/gt --listen :8081 --debug-serve-dir ./samples
+bin/tmux-converter --listen :8081 --debug-serve-dir ./samples
 open http://localhost:8081/converter.html
 ```
 
@@ -221,8 +217,8 @@ open http://localhost:8081/converter.html
 
 ```bash
 go build -o bin/tmux-adapter . && go build -o bin/tmux-converter ./cmd/tmux-converter/
-bin/tmux-adapter --gt-dir ~/gt --port 8080 --debug-serve-dir ./samples &
-bin/tmux-converter --gt-dir ~/gt --listen :8081 --debug-serve-dir ./samples &
+bin/tmux-adapter --port 8080 --debug-serve-dir ./samples &
+bin/tmux-converter --listen :8081 --debug-serve-dir ./samples &
 # Adapter dashboard: http://localhost:8080/adapter.html
 # Converter dashboard: http://localhost:8081/converter.html
 ```
@@ -233,15 +229,19 @@ JSON-only WebSocket protocol at `/ws`. Requires a protocol handshake as the firs
 
 ```json
 → {"id":"1", "type":"hello", "protocol":"tmux-converter.v1"}
-← {"id":"1", "type":"hello", "ok":true, "protocol":"tmux-converter.v1"}
+← {"id":"1", "type":"hello", "ok":true, "protocol":"tmux-converter.v1", "serverVersion":"0.1.0"}
 ```
 
 **Follow an agent** (auto-subscribes to current conversation, auto-switches on rotation):
 
 ```json
 → {"id":"2", "type":"follow-agent", "agent":"hq-mayor", "filter":{"excludeProgress":true}}
-← {"id":"2", "type":"follow-agent", "ok":true, "conversationId":"claude:hq-mayor:abc123",
-   "events":[...], "totalEvents":835}
+← {"id":"2", "type":"follow-agent", "ok":true, "subscriptionId":"sub-1",
+   "conversationId":"claude:hq-mayor:abc123", "conversationSupported":true}
+← {"type":"conversation-snapshot", "subscriptionId":"sub-1", "conversationId":"claude:hq-mayor:abc123"}
+← {"type":"conversation-snapshot-chunk", "subscriptionId":"sub-1", "events":[...], "progress":{"loaded":500,"total":835}}
+← {"type":"conversation-snapshot-end", "subscriptionId":"sub-1", "conversationId":"claude:hq-mayor:abc123"}
+← {"type":"conversation-event", "subscriptionId":"sub-1", "event":{...}, "cursor":"..."}
 ```
 
 **List agents:**
@@ -255,17 +255,46 @@ JSON-only WebSocket protocol at `/ws`. Requires a protocol handshake as the firs
 
 ```json
 → {"id":"4", "type":"subscribe-agents"}
-← {"id":"4", "type":"subscribe-agents", "ok":true, "agents":[...]}
+← {"id":"4", "type":"subscribe-agents", "ok":true, "agents":[...], "totalAgents":5}
 ← {"type":"agent-added", "agent":{...}}
 ← {"type":"agent-removed", "name":"..."}
+```
+
+**List conversations:**
+
+```json
+→ {"id":"5", "type":"list-conversations"}
+← {"id":"5", "type":"list-conversations", "conversations":[
+    {"conversationId":"claude:hq-mayor:abc123", "agentName":"hq-mayor", "runtime":"claude"}
+  ]}
+```
+
+**Subscribe to a conversation:**
+
+```json
+→ {"id":"6", "type":"subscribe-conversation", "conversationId":"claude:hq-mayor:abc123",
+   "filter":{"types":["user","assistant"]}}
+← {"id":"6", "type":"conversation-snapshot", "subscriptionId":"sub-2", "conversationId":"claude:hq-mayor:abc123"}
+← {"type":"conversation-snapshot-chunk", ...}
+← {"type":"conversation-snapshot-end", ...}
+← {"type":"conversation-event", "subscriptionId":"sub-2", "event":{...}, "cursor":"..."}
+```
+
+**Send a prompt:**
+
+```json
+→ {"id":"7", "type":"send-prompt", "agent":"hq-mayor", "prompt":"please review the PR"}
+← {"id":"7", "type":"send-prompt", "ok":true}
 ```
 
 **Unsubscribe:**
 
 ```json
-→ {"id":"5", "type":"unsubscribe-agent", "agent":"hq-mayor"}
-← {"id":"5", "type":"unsubscribe-agent", "ok":true}
+→ {"id":"8", "type":"unsubscribe-agent", "agent":"hq-mayor"}
+← {"id":"8", "type":"unsubscribe-agent", "ok":true}
 ```
+
+**Event filtering**: All subscription requests (`follow-agent`, `subscribe-conversation`) accept an optional `filter` object with `types` (allowlist), `excludeThinking`, and `excludeProgress` fields. Agent listing requests support session and path regex filters (`includeSessionFilter`, `excludeSessionFilter`, `includePathFilter`, `excludePathFilter`).
 
 ### Converter HTTP Endpoints
 
@@ -273,12 +302,14 @@ JSON-only WebSocket protocol at `/ws`. Requires a protocol handshake as the firs
 - `GET /healthz` → process liveness (`{"ok":true}`)
 - `GET /readyz` → tmux + registry readiness
 - `GET /conversations` → list active conversations with metadata
+- `GET /tmux-converter-web/*` → embedded web component files (CORS-enabled)
+- `GET /shared/*` → shared dashboard assets (CORS-enabled)
 
 ### Converter Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--gt-dir` | `~/gt` | Gastown town directory |
+| `--work-dir` | (empty) | Optional working directory filter — only track agents under this path (empty = all) |
 | `--listen` | `:8081` | HTTP/WebSocket listen address |
 | `--debug-serve-dir` | `` | Serve static files at `/` (development only) |
 
@@ -312,7 +343,7 @@ Clients ◄──ws──► tmux-converter ◄──control mode──► tmux 
 
 - **Component serving**: the `<tmux-adapter-web>` web component is embedded in the adapter binary via `go:embed` and served at `/tmux-adapter-web/` with CORS headers. Consumers import directly from the adapter — the server is its own CDN.
 - **Control mode**: each service maintains its own `tmux -C` connection (adapter uses `adapter-monitor`, converter uses `converter-monitor`)
-- **Agent detection**: reads `GT_ROLE`/`GT_RIG` env vars, checks `pane_current_command` against known runtimes, walks process descendants for shell-wrapped agents, handles version-as-argv[0] (e.g., Claude showing `2.1.38`)
+- **Agent detection**: checks `pane_current_command` against known runtimes, walks process descendants for shell-wrapped agents, handles version-as-argv[0] (e.g., Claude showing `2.1.38`)
 - **Output streaming** (adapter): `pipe-pane -o` activated per-agent on first subscriber, deactivated on last unsubscribe; each subscribe also sends an immediate `capture-pane` snapshot frame
 - **Conversation streaming** (converter): discovers `.jsonl` files, tails only the active (most recent) file for live events, parses into structured events, buffers and broadcasts to subscribers. Older files are inactive conversations available for future on-demand loading.
 - **Send prompt**: full NudgeSession sequence with per-agent mutex to prevent interleaving
@@ -321,7 +352,7 @@ Clients ◄──ws──► tmux-converter ◄──control mode──► tmux 
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--gt-dir` | `~/gt` | Gastown town directory |
+| `--work-dir` | (empty) | Optional working directory filter — only track agents under this path (empty = all) |
 | `--port` | `8080` | WebSocket server port |
 | `--auth-token` | `` | Optional WebSocket auth token |
 | `--allowed-origins` | `localhost:*` | Comma-separated origin patterns for WebSocket CORS |
