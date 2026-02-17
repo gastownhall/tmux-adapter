@@ -7,21 +7,6 @@
 <link rel="stylesheet" href="/shared/styles.css">
 <style>
   /* Adapter-specific styles */
-  .badge-role { color: #0d1117; }
-  .badge-attached { background: #1f6feb33; color: #58a6ff; }
-
-  /* Role colors */
-  .role-mayor    { background: #da3633; }
-  .role-deacon   { background: #a371f7; }
-  .role-overseer { background: #58a6ff; }
-  .role-witness  { background: #3fb950; }
-  .role-refinery { background: #d29922; }
-  .role-crew     { background: #f778ba; }
-  .role-polecat  { background: #79c0ff; }
-  .role-boot     { background: #8b949e; }
-
-  .agent-name { flex-wrap: wrap; }
-
   .output-wrap {
     flex: 1;
     overflow: hidden;
@@ -29,17 +14,8 @@
   }
 
   @media (max-width: 520px) {
-    .agent-card { padding: 9px 10px; }
-
-    .agent-meta {
-      font-size: 10px;
-      gap: 6px;
-    }
-
-    .badge {
-      font-size: 9px;
-      padding: 1px 5px;
-    }
+    .tree-row { padding: 4px 6px; }
+    .tree-view { font-size: 11px; }
   }
 </style>
 <script type="importmap">
@@ -50,18 +26,18 @@
 <div class="container">
   <div class="sidebar">
     <div class="sidebar-header">
-      <button type="button" class="sidebar-close" id="sidebar-close" aria-label="Close agents drawer">×</button>
-      <span class="sidebar-title">Agents</span>
+      <button type="button" class="sidebar-close" id="sidebar-close" aria-label="Close drawer">×</button>
+      <span class="sidebar-title">tmux</span>
     </div>
-    <div class="agent-list" id="agent-list">
-      <div class="agent-list-state"><span class="spinner"></span><span>Loading agents...</span></div>
+    <div class="tree-view" id="tree-view">
+      <div class="agent-list-state"><span class="spinner"></span><span>Loading...</span></div>
     </div>
   </div>
 
   <div class="main">
     <div class="main-header" id="main-header">
-      <button type="button" class="mobile-nav-btn" id="mobile-nav-btn" aria-label="Open agents drawer">☰</button>
-      <div class="header-content" id="header-content">Select an agent to view output</div>
+      <button type="button" class="mobile-nav-btn" id="mobile-nav-btn" aria-label="Open drawer">☰</button>
+      <div class="header-content" id="header-content">Select a pane to view</div>
       <button type="button" id="kb-toggle" style="display:none; background:rgba(22,27,34,0.9); border:1px solid #30363d; border-radius:6px; color:#8b949e; font-size:18px; width:36px; height:36px; cursor:pointer; align-items:center; justify-content:center; -webkit-tap-highlight-color:transparent" aria-label="Toggle keyboard">&#x2328;</button>
       <div class="connection-status" id="connection-status">
         <span class="dot disconnected" id="status-dot"></span>
@@ -69,7 +45,7 @@
       </div>
     </div>
     <div class="output-wrap" id="output-wrap">
-      <div class="placeholder" id="placeholder">Select an agent from the sidebar</div>
+      <div class="placeholder" id="placeholder">Select a pane from the sidebar</div>
     </div>
   </div>
 </div>
@@ -77,13 +53,13 @@
 
 <script type="module">
 import { init } from 'ghostty-web';
-import { clearChildren, createBadge, isMobileLayout, openDrawer, closeDrawer } from '/shared/utils.js';
+import { clearChildren, isMobileLayout, openDrawer, closeDrawer } from '/shared/utils.js';
 await init();
 
 var adapterHost = new URLSearchParams(location.search).get('adapter') || location.host || 'localhost:8080';
 var adapterOrigin = (location.protocol === 'https:' ? 'https://' : 'http://') + adapterHost;
 
-// Remote debug logging — sends to adapter's /debug/log endpoint
+// Remote debug logging
 function rlog() {
   var msg = Array.prototype.slice.call(arguments).join(' ');
   console.log('[rlog]', msg);
@@ -93,67 +69,60 @@ window.rlog = rlog;
 
 var cacheBust = '?v=' + Date.now();
 var { decodeBinaryFrame, encodeBinaryFrame, BinaryMsgType } = await import(adapterOrigin + '/tmux-adapter-web/index.js' + cacheBust);
+
 // --- State ---
-var agents = new Map();       // name -> agent object
-var selectedAgent = null;     // name of currently selected agent
-var msgId = 0;                // monotonic message id
+var selectedTarget = null;    // tmux target of currently selected pane (e.g., "session:0.1")
+var treeData = [];            // array of TmuxSessionNode
+var expandedNodes = new Set(); // set of node IDs that are expanded
+var msgId = 0;
 var ws = null;
 var textEncoder = new TextEncoder();
-var agentsLoading = true;
-var agentsLoadTimedOut = false;
-var agentsLoadTimer = null;
-var AgentsLoadTimeoutMs = 7000;
+var treeLoading = true;
+var treeLoadTimedOut = false;
+var treeLoadTimer = null;
+var TreeLoadTimeoutMs = 7000;
+var treeRefreshInterval = null;
+var TreeRefreshMs = 5000;
 
 // --- DOM refs ---
-var agentListEl  = document.getElementById('agent-list');
-var outputWrapEl = document.getElementById('output-wrap');
-var headerContentEl = document.getElementById('header-content');
-var placeholderEl = document.getElementById('placeholder');
-var statusDot    = document.getElementById('status-dot');
-var statusText   = document.getElementById('status-text');
-var mobileNavBtn = document.getElementById('mobile-nav-btn');
-var sidebarCloseBtn = document.getElementById('sidebar-close');
+var treeViewEl       = document.getElementById('tree-view');
+var outputWrapEl     = document.getElementById('output-wrap');
+var headerContentEl  = document.getElementById('header-content');
+var placeholderEl    = document.getElementById('placeholder');
+var statusDot        = document.getElementById('status-dot');
+var statusText       = document.getElementById('status-text');
+var mobileNavBtn     = document.getElementById('mobile-nav-btn');
+var sidebarCloseBtn  = document.getElementById('sidebar-close');
 var drawerBackdropEl = document.getElementById('drawer-backdrop');
-var kbToggleBtn = document.getElementById('kb-toggle');
+var kbToggleBtn      = document.getElementById('kb-toggle');
 var kbActive = false;
 
 // --- Mobile keyboard toggle ---
 var isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-var kbFocusGuardUntil = 0; // timestamp: suppress blur detection while VKB is opening
-rlog('touch=' + isTouchDevice + ' selectedAgent=' + selectedAgent);
+var kbFocusGuardUntil = 0;
 if (isTouchDevice) {
   kbToggleBtn.style.display = 'flex';
   kbToggleBtn.addEventListener('touchend', function(ev) {
     ev.preventDefault();
     ev.stopPropagation();
     kbActive = !kbActive;
-    rlog('kb toggle pressed, kbActive=' + kbActive + ' selectedAgent=' + selectedAgent);
-    var el = selectedAgent ? outputWrapEl.querySelector('tmux-adapter-web[name="' + CSS.escape(selectedAgent) + '"]') : null;
+    var el = selectedTarget ? outputWrapEl.querySelector('tmux-adapter-web[name="' + CSS.escape(selectedTarget) + '"]') : null;
     if (kbActive && el) {
-      // Set a guard window: suppress blur events for 500ms while the VKB opens and triggers resize
       kbFocusGuardUntil = Date.now() + 500;
-      rlog('calling focusTextarea with 500ms guard');
       el.focusTextarea();
-      // Re-assert focus after resize settles
-      setTimeout(function() { if (kbActive && el) { rlog('re-focus after settle'); el.focusTextarea(); } }, 300);
+      setTimeout(function() { if (kbActive && el) el.focusTextarea(); }, 300);
       kbToggleBtn.style.color = '#58a6ff';
       kbToggleBtn.style.borderColor = '#58a6ff';
     } else if (!kbActive && el) {
-      rlog('calling blurTextarea');
       el.blurTextarea();
       kbToggleBtn.style.color = '#8b949e';
       kbToggleBtn.style.borderColor = '#30363d';
     }
   });
 
-  // Detect VKB dismiss via blur — but ignore during the guard window
   outputWrapEl.addEventListener('focusout', function(ev) {
     if (kbActive && ev.target && ev.target.tagName === 'TEXTAREA') {
-      if (Date.now() < kbFocusGuardUntil) {
-        rlog('textarea blur during guard window, ignoring');
-        return;
-      }
-      rlog('textarea blur detected, resetting kbActive');
+      if (Date.now() < kbFocusGuardUntil) return;
       kbActive = false;
       kbToggleBtn.style.color = '#8b949e';
       kbToggleBtn.style.borderColor = '#30363d';
@@ -161,29 +130,10 @@ if (isTouchDevice) {
   });
 }
 
-// --- Terminal event wiring (delegated on outputWrapEl) ---
+// --- Terminal event wiring ---
 outputWrapEl.addEventListener('terminal-input', function(e) {
-  rlog('terminal-input: ' + e.detail.data.length + ' bytes from ' + e.detail.name);
   sendBinary(BinaryMsgType.KeyboardInput, e.detail.name, e.detail.data);
 });
-
-// --- Debug: trace keystroke flow on touch devices ---
-if (isTouchDevice) {
-  outputWrapEl.addEventListener('keydown', function(e) { rlog('keydown: key=' + e.key + ' target=' + e.target.tagName + '.' + e.target.className); }, true);
-  outputWrapEl.addEventListener('beforeinput', function(e) { rlog('beforeinput: type=' + e.inputType + ' data=' + (e.data || '') + ' target=' + e.target.tagName); }, true);
-  outputWrapEl.addEventListener('input', function(e) { rlog('input: type=' + e.inputType + ' data=' + (e.data || '') + ' target=' + e.target.tagName); }, true);
-  // Check if beforeinput has listeners on the textarea
-  outputWrapEl.addEventListener('terminal-ready', function() {
-    var termEl = outputWrapEl.querySelector('tmux-adapter-web');
-    if (termEl) {
-      var ta = termEl.querySelector('textarea');
-      rlog('textarea found=' + !!ta + ' focused=' + (document.activeElement === ta));
-      if (ta) {
-        ta.addEventListener('beforeinput', function(e) { rlog('TA-beforeinput: type=' + e.inputType + ' data=' + (e.data || '')); });
-      }
-    }
-  }, true);
-}
 
 outputWrapEl.addEventListener('terminal-resize', function(e) {
   sendBinary(BinaryMsgType.Resize, e.detail.name, textEncoder.encode(e.detail.cols + ':' + e.detail.rows));
@@ -194,52 +144,50 @@ outputWrapEl.addEventListener('file-upload', function(e) {
 });
 
 // --- Helpers ---
-function clearAgentsLoadTimer() {
-  if (!agentsLoadTimer) return;
-  clearTimeout(agentsLoadTimer);
-  agentsLoadTimer = null;
+function clearTreeLoadTimer() {
+  if (!treeLoadTimer) return;
+  clearTimeout(treeLoadTimer);
+  treeLoadTimer = null;
 }
 
-function startAgentsLoading() {
-  agentsLoading = true;
-  agentsLoadTimedOut = false;
-  clearAgentsLoadTimer();
-  agentsLoadTimer = setTimeout(function() {
-    if (!agentsLoading) return;
-    agentsLoading = false;
-    agentsLoadTimedOut = true;
-    renderAgentList();
-  }, AgentsLoadTimeoutMs);
-  renderAgentList();
+function startTreeLoading() {
+  treeLoading = true;
+  treeLoadTimedOut = false;
+  clearTreeLoadTimer();
+  treeLoadTimer = setTimeout(function() {
+    if (!treeLoading) return;
+    treeLoading = false;
+    treeLoadTimedOut = true;
+    renderTree();
+  }, TreeLoadTimeoutMs);
+  renderTree();
 }
 
-function markAgentsLoaded() {
-  agentsLoading = false;
-  agentsLoadTimedOut = false;
-  clearAgentsLoadTimer();
+function markTreeLoaded() {
+  treeLoading = false;
+  treeLoadTimedOut = false;
+  clearTreeLoadTimer();
 }
 
-function sendResizeNow(agentName) {
-  var el = outputWrapEl.querySelector('tmux-adapter-web[name="' + CSS.escape(agentName) + '"]');
+function sendResizeNow(target) {
+  var el = outputWrapEl.querySelector('tmux-adapter-web[name="' + CSS.escape(target) + '"]');
   if (!el || !el.cols || !el.rows) return false;
-  var payload = textEncoder.encode(el.cols + ':' + el.rows);
-  sendBinary(BinaryMsgType.Resize, agentName, payload);
+  sendBinary(BinaryMsgType.Resize, target, textEncoder.encode(el.cols + ':' + el.rows));
   return true;
 }
 
-function subscribeOutputWithSizedSnapshot(agentName) {
-  if (!agentName) return;
-
+function subscribeOutputWithSizedSnapshot(target) {
+  if (!target) return;
   requestAnimationFrame(function() {
-    sendResizeNow(agentName);
-    send({ type: 'subscribe-output', agent: agentName });
+    sendResizeNow(target);
+    send({ type: 'subscribe-output', agent: target });
   });
 }
 
 function syncMobileNavButton() {
   if (!mobileNavBtn) return;
-  mobileNavBtn.textContent = '☰';
-  mobileNavBtn.setAttribute('aria-label', 'Open agents drawer');
+  mobileNavBtn.textContent = '\u2630';
+  mobileNavBtn.setAttribute('aria-label', 'Open drawer');
 }
 
 function bindMobileLayoutEvents() {
@@ -249,24 +197,18 @@ function bindMobileLayoutEvents() {
       openDrawer();
     });
   }
-
   if (sidebarCloseBtn) {
-    sidebarCloseBtn.addEventListener('click', function() {
-      closeDrawer();
-    });
+    sidebarCloseBtn.addEventListener('click', function() { closeDrawer(); });
   }
-
   if (drawerBackdropEl) {
-    drawerBackdropEl.addEventListener('click', function() {
-      closeDrawer();
-    });
+    drawerBackdropEl.addEventListener('click', function() { closeDrawer(); });
   }
 
   var media = window.matchMedia('(max-width: 900px)');
   var onChange = function(ev) {
     if (!ev.matches) {
       closeDrawer();
-    } else if (!selectedAgent) {
+    } else if (!selectedTarget) {
       openDrawer();
     }
     syncMobileNavButton();
@@ -279,9 +221,9 @@ function bindMobileLayoutEvents() {
 }
 
 // --- Binary protocol ---
-function sendBinary(type, agentName, payload) {
+function sendBinary(type, target, payload) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(encodeBinaryFrame(type, agentName, payload));
+  ws.send(encodeBinaryFrame(type, target, payload));
 }
 
 function handleBinaryMessage(buffer) {
@@ -295,15 +237,15 @@ function handleBinaryMessage(buffer) {
 }
 
 // --- Terminal management ---
-function showTerminal(agentName) {
+function showTerminal(target) {
   outputWrapEl.querySelectorAll('tmux-adapter-web').forEach(function(el) {
     el.style.display = 'none';
   });
 
-  var el = outputWrapEl.querySelector('tmux-adapter-web[name="' + CSS.escape(agentName) + '"]');
+  var el = outputWrapEl.querySelector('tmux-adapter-web[name="' + CSS.escape(target) + '"]');
   if (!el) {
     el = document.createElement('tmux-adapter-web');
-    el.setAttribute('name', agentName);
+    el.setAttribute('name', target);
     outputWrapEl.appendChild(el);
   }
   el.style.display = '';
@@ -324,35 +266,30 @@ function connect() {
   var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   var wsURL = new URL(proto + '//' + adapterHost + '/ws');
   var token = new URLSearchParams(location.search).get('token');
-  if (token) {
-    wsURL.searchParams.set('token', token);
-  }
+  if (token) wsURL.searchParams.set('token', token);
   ws = new WebSocket(wsURL.toString());
   ws.binaryType = 'arraybuffer';
 
   ws.onopen = function() {
     statusDot.classList.remove('disconnected');
     statusText.textContent = 'Connected';
-    if (agents.size === 0) {
-      startAgentsLoading();
-    }
-    send({ type: 'subscribe-agents' });
+    requestTmuxTree();
+    startTreeRefresh();
 
-    // Re-subscribe to selected agent's output on reconnect
-    if (selectedAgent) {
-      var el = outputWrapEl.querySelector('tmux-adapter-web[name="' + CSS.escape(selectedAgent) + '"]');
+    // Re-subscribe to selected pane on reconnect
+    if (selectedTarget) {
+      var el = outputWrapEl.querySelector('tmux-adapter-web[name="' + CSS.escape(selectedTarget) + '"]');
       if (el) el.reset();
-      showTerminal(selectedAgent);
-      subscribeOutputWithSizedSnapshot(selectedAgent);
+      showTerminal(selectedTarget);
+      subscribeOutputWithSizedSnapshot(selectedTarget);
     }
   };
 
   ws.onclose = function() {
     statusDot.classList.add('disconnected');
     statusText.textContent = 'Disconnected';
-    if (agents.size === 0) {
-      startAgentsLoading();
-    }
+    stopTreeRefresh();
+    if (treeData.length === 0) startTreeLoading();
     setTimeout(connect, 2000);
   };
 
@@ -372,42 +309,45 @@ function send(obj) {
   return obj.id;
 }
 
+function requestTmuxTree() {
+  send({ type: 'list-tmux-tree' });
+}
+
+function startTreeRefresh() {
+  stopTreeRefresh();
+  treeRefreshInterval = setInterval(function() {
+    if (ws && ws.readyState === WebSocket.OPEN) requestTmuxTree();
+  }, TreeRefreshMs);
+}
+
+function stopTreeRefresh() {
+  if (treeRefreshInterval) {
+    clearInterval(treeRefreshInterval);
+    treeRefreshInterval = null;
+  }
+}
+
 // --- JSON message handling ---
 function handleJsonMessage(msg) {
   switch (msg.type) {
-    case 'subscribe-agents':
-      agents.clear();
-      if (msg.agents) msg.agents.forEach(function(a) { agents.set(a.name, a); });
-      markAgentsLoaded();
-      renderAgentList();
-      break;
-
-    case 'agent-added':
-      if (msg.agent) agents.set(msg.agent.name, msg.agent);
-      renderAgentList();
-      break;
-
-    case 'agent-removed':
-      var removedName = msg.name || (msg.agent && msg.agent.name);
-      if (removedName) {
-        agents.delete(removedName);
-        var el = outputWrapEl.querySelector('tmux-adapter-web[name="' + CSS.escape(removedName) + '"]');
-        if (el) el.remove(); // disconnectedCallback handles cleanup
-        if (selectedAgent === removedName) deselectAgent();
+    case 'list-tmux-tree':
+      if (msg.tree) {
+        treeData = msg.tree;
+        // Auto-expand all sessions on first load
+        if (expandedNodes.size === 0) {
+          treeData.forEach(function(sess) {
+            expandedNodes.add('s:' + sess.name);
+            if (sess.windows) sess.windows.forEach(function(win) {
+              expandedNodes.add('w:' + sess.name + ':' + win.index);
+            });
+          });
+        }
+        markTreeLoaded();
+        renderTree();
       }
-      renderAgentList();
-      break;
-
-    case 'agent-updated':
-      if (msg.agent) agents.set(msg.agent.name, msg.agent);
-      renderAgentList();
-      if (msg.agent && msg.agent.name === selectedAgent) updateHeader();
       break;
 
     case 'subscribe-output':
-      break;
-
-    case 'send-prompt':
       break;
 
     case 'error':
@@ -416,127 +356,273 @@ function handleJsonMessage(msg) {
   }
 }
 
-// --- Agent list rendering (safe DOM methods) ---
-function renderAgentList() {
-  clearChildren(agentListEl);
+// --- Tree rendering ---
+function renderTree() {
+  clearChildren(treeViewEl);
 
-  if (agentsLoading) {
+  if (treeLoading) {
     var loading = document.createElement('div');
     loading.className = 'agent-list-state';
     var spinner = document.createElement('span');
     spinner.className = 'spinner';
     loading.appendChild(spinner);
-    var loadingText = document.createElement('span');
-    loadingText.textContent = 'Loading agents...';
-    loading.appendChild(loadingText);
-    agentListEl.appendChild(loading);
+    var text = document.createElement('span');
+    text.textContent = 'Loading...';
+    loading.appendChild(text);
+    treeViewEl.appendChild(loading);
     return;
   }
 
-  if (agents.size === 0) {
+  if (treeData.length === 0) {
     var empty = document.createElement('div');
-    empty.className = 'agent-list-state' + (agentsLoadTimedOut ? ' timeout' : '');
-    empty.textContent = agentsLoadTimedOut ? 'Agent list load timed out' : 'No agents running';
-    agentListEl.appendChild(empty);
+    empty.className = 'agent-list-state' + (treeLoadTimedOut ? ' timeout' : '');
+    empty.textContent = treeLoadTimedOut ? 'Load timed out' : 'No tmux sessions';
+    treeViewEl.appendChild(empty);
     return;
   }
 
-  var sorted = Array.from(agents.values()).sort(function(a, b) {
-    return a.name.localeCompare(b.name);
-  });
-
-  sorted.forEach(function(agent) {
-    var card = document.createElement('div');
-    card.className = 'agent-card' + (agent.name === selectedAgent ? ' selected' : '');
-    card.addEventListener('click', function() { selectAgent(agent.name); });
-
-    // Name row
-    var nameRow = document.createElement('div');
-    nameRow.className = 'agent-name';
-    nameRow.appendChild(createBadge(agent.role || '?', 'badge badge-role role-' + (agent.role || 'boot')));
-    var nameSpan = document.createElement('span');
-    nameSpan.textContent = agent.name;
-    nameRow.appendChild(nameSpan);
-    card.appendChild(nameRow);
-
-    // Meta row
-    var metaRow = document.createElement('div');
-    metaRow.className = 'agent-meta';
-    metaRow.appendChild(createBadge(agent.runtime || '?', 'badge-runtime'));
-    if (agent.attached) {
-      metaRow.appendChild(createBadge('attached', 'badge badge-attached'));
-    }
-    card.appendChild(metaRow);
-
-    agentListEl.appendChild(card);
+  treeData.forEach(function(sess) {
+    treeViewEl.appendChild(buildSessionNode(sess));
   });
 }
 
-// --- Agent selection ---
-function selectAgent(name) {
-  if (selectedAgent === name) {
-    if (isMobileLayout()) {
-      closeDrawer();
+function buildSessionNode(sess) {
+  var nodeId = 's:' + sess.name;
+  var isOpen = expandedNodes.has(nodeId);
+  var winCount = sess.windows ? sess.windows.length : 0;
+
+  var node = document.createElement('div');
+  node.className = 'tree-node tree-session';
+
+  var row = document.createElement('div');
+  row.className = 'tree-row';
+
+  var toggle = document.createElement('span');
+  toggle.className = 'tree-toggle' + (isOpen ? ' open' : '');
+  toggle.textContent = '\u25B6';
+  row.appendChild(toggle);
+
+  var icon = document.createElement('span');
+  icon.className = 'tree-icon';
+  icon.textContent = '\u25A0';
+  row.appendChild(icon);
+
+  var label = document.createElement('span');
+  label.className = 'tree-label';
+  label.textContent = sess.name;
+  row.appendChild(label);
+
+  if (sess.attached) {
+    var badge = document.createElement('span');
+    badge.className = 'tree-badge-attached';
+    badge.textContent = 'attached';
+    row.appendChild(badge);
+  }
+
+  var meta = document.createElement('span');
+  meta.className = 'tree-meta';
+  meta.textContent = winCount + 'w';
+  row.appendChild(meta);
+
+  row.addEventListener('click', function(e) {
+    e.stopPropagation();
+    if (isOpen) {
+      expandedNodes.delete(nodeId);
+    } else {
+      expandedNodes.add(nodeId);
     }
-    syncMobileNavButton();
+    renderTree();
+  });
+
+  node.appendChild(row);
+
+  if (isOpen && sess.windows) {
+    var children = document.createElement('div');
+    children.className = 'tree-children';
+    sess.windows.forEach(function(win) {
+      children.appendChild(buildWindowNode(sess.name, win));
+    });
+    node.appendChild(children);
+  }
+
+  return node;
+}
+
+function buildWindowNode(sessName, win) {
+  var nodeId = 'w:' + sessName + ':' + win.index;
+  var isOpen = expandedNodes.has(nodeId);
+  var paneCount = win.panes ? win.panes.length : 0;
+
+  var node = document.createElement('div');
+  node.className = 'tree-node tree-window';
+
+  var row = document.createElement('div');
+  row.className = 'tree-row';
+
+  var toggle = document.createElement('span');
+  toggle.className = 'tree-toggle' + (isOpen ? ' open' : '');
+  toggle.textContent = '\u25B6';
+  row.appendChild(toggle);
+
+  var icon = document.createElement('span');
+  icon.className = 'tree-icon';
+  icon.textContent = '\u25AB';
+  row.appendChild(icon);
+
+  var label = document.createElement('span');
+  label.className = 'tree-label';
+  label.textContent = win.index + ': ' + win.name;
+  row.appendChild(label);
+
+  if (win.active) {
+    var dot = document.createElement('span');
+    dot.className = 'tree-badge-active';
+    dot.title = 'active window';
+    row.appendChild(dot);
+  }
+
+  var meta = document.createElement('span');
+  meta.className = 'tree-meta';
+  meta.textContent = paneCount + 'p';
+  row.appendChild(meta);
+
+  row.addEventListener('click', function(e) {
+    e.stopPropagation();
+    if (isOpen) {
+      expandedNodes.delete(nodeId);
+    } else {
+      expandedNodes.add(nodeId);
+    }
+    renderTree();
+  });
+
+  node.appendChild(row);
+
+  if (isOpen && win.panes) {
+    var children = document.createElement('div');
+    children.className = 'tree-children';
+    win.panes.forEach(function(pane) {
+      children.appendChild(buildPaneNode(sessName, win, pane));
+    });
+    node.appendChild(children);
+  }
+
+  return node;
+}
+
+function buildPaneNode(sessName, win, pane) {
+  var target = pane.target;
+  var isSelected = target === selectedTarget;
+
+  var node = document.createElement('div');
+  node.className = 'tree-node tree-pane';
+
+  var row = document.createElement('div');
+  row.className = 'tree-row' + (isSelected ? ' selected' : '');
+
+  // No toggle for leaf nodes, but add spacing
+  var spacer = document.createElement('span');
+  spacer.className = 'tree-toggle';
+  spacer.textContent = '';
+  row.appendChild(spacer);
+
+  var icon = document.createElement('span');
+  icon.className = 'tree-icon';
+  icon.textContent = '>';
+  row.appendChild(icon);
+
+  var label = document.createElement('span');
+  label.className = 'tree-label';
+  label.textContent = pane.index + ': ' + pane.command;
+  row.appendChild(label);
+
+  if (pane.active) {
+    var dot = document.createElement('span');
+    dot.className = 'tree-badge-active';
+    dot.title = 'active pane';
+    row.appendChild(dot);
+  }
+
+  var meta = document.createElement('span');
+  meta.className = 'tree-meta';
+  meta.textContent = pane.width + '\u00D7' + pane.height;
+  row.appendChild(meta);
+
+  row.addEventListener('click', function(e) {
+    e.stopPropagation();
+    selectPane(target, sessName, win, pane);
+  });
+
+  node.appendChild(row);
+  return node;
+}
+
+// --- Pane selection ---
+function selectPane(target, sessName, win, pane) {
+  if (selectedTarget === target) {
+    if (isMobileLayout()) closeDrawer();
     return;
   }
 
   // Unsubscribe from previous
-  if (selectedAgent) {
-    send({ type: 'unsubscribe-output', agent: selectedAgent });
+  if (selectedTarget) {
+    send({ type: 'unsubscribe-output', agent: selectedTarget });
   }
 
-  selectedAgent = name;
+  selectedTarget = target;
 
-  // Reset terminal for fresh snapshot on re-select
-  var el = outputWrapEl.querySelector('tmux-adapter-web[name="' + CSS.escape(name) + '"]');
+  // Reset terminal for fresh snapshot
+  var el = outputWrapEl.querySelector('tmux-adapter-web[name="' + CSS.escape(target) + '"]');
   if (el) el.reset();
 
-  updateHeader();
-  renderAgentList();
+  updateHeader(sessName, win, pane);
+  renderTree();
 
-  showTerminal(name);
-  subscribeOutputWithSizedSnapshot(name);
+  showTerminal(target);
+  subscribeOutputWithSizedSnapshot(target);
 
-  if (isMobileLayout()) {
-    closeDrawer();
-  }
+  if (isMobileLayout()) closeDrawer();
   syncMobileNavButton();
 }
 
-function deselectAgent() {
-  selectedAgent = null;
+function deselectPane() {
+  selectedTarget = null;
   hideAllTerminals();
-
   clearChildren(headerContentEl);
-  headerContentEl.textContent = 'Select an agent to view output';
-
-  renderAgentList();
-  if (isMobileLayout()) {
-    openDrawer();
-  }
+  headerContentEl.textContent = 'Select a pane to view';
+  renderTree();
+  if (isMobileLayout()) openDrawer();
   syncMobileNavButton();
 }
 
-function updateHeader() {
-  if (!selectedAgent) return;
-  var agent = agents.get(selectedAgent);
-  if (!agent) return;
-
+function updateHeader(sessName, win, pane) {
+  if (!selectedTarget) return;
   clearChildren(headerContentEl);
-  headerContentEl.appendChild(createBadge(agent.role || '?', 'badge badge-role role-' + (agent.role || 'boot')));
 
-  var label = document.createElement('span');
-  label.className = 'agent-label';
-  label.textContent = agent.name;
-  headerContentEl.appendChild(label);
+  var sessLabel = document.createElement('span');
+  sessLabel.className = 'agent-label';
+  sessLabel.textContent = sessName;
+  headerContentEl.appendChild(sessLabel);
 
-  headerContentEl.appendChild(createBadge(agent.runtime || '?', 'badge-runtime'));
+  var sep1 = document.createElement('span');
+  sep1.textContent = '\u203A';
+  sep1.style.color = '#484f58';
+  headerContentEl.appendChild(sep1);
 
-  if (agent.attached) {
-    headerContentEl.appendChild(createBadge('attached', 'badge badge-attached'));
-  }
+  var winLabel = document.createElement('span');
+  winLabel.style.color = '#a371f7';
+  winLabel.textContent = win.index + ':' + win.name;
+  headerContentEl.appendChild(winLabel);
+
+  var sep2 = document.createElement('span');
+  sep2.textContent = '\u203A';
+  sep2.style.color = '#484f58';
+  headerContentEl.appendChild(sep2);
+
+  var paneLabel = document.createElement('span');
+  paneLabel.style.color = '#3fb950';
+  paneLabel.textContent = pane.command + ' (' + pane.width + '\u00D7' + pane.height + ')';
+  headerContentEl.appendChild(paneLabel);
 
   syncMobileNavButton();
 }
@@ -545,21 +631,19 @@ function updateHeader() {
 if (window.visualViewport) {
   var containerEl = document.querySelector('.container');
   window.visualViewport.addEventListener('resize', function() {
-    // When VKB appears, visualViewport.height shrinks. Resize the layout to fit.
     containerEl.style.height = window.visualViewport.height + 'px';
   });
   window.visualViewport.addEventListener('scroll', function() {
-    // Prevent the page from scrolling behind the keyboard
     window.scrollTo(0, 0);
   });
 }
 
 // --- Boot ---
 bindMobileLayoutEvents();
-startAgentsLoading();
+startTreeLoading();
 connect();
 syncMobileNavButton();
-if (isMobileLayout() && !selectedAgent) {
+if (isMobileLayout() && !selectedTarget) {
   openDrawer();
 }
 </script>

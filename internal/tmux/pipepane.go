@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -53,7 +54,9 @@ func (pm *PipePaneManager) Subscribe(session string) (int, <-chan []byte, error)
 	}
 
 	// First subscriber — activate pipe-pane
-	filePath := fmt.Sprintf("/tmp/adapter-%s.pipe", session)
+	// Sanitize target for use in file path (pane targets contain : and .)
+	safeName := strings.NewReplacer(":", "-", ".", "-", "/", "-").Replace(session)
+	filePath := fmt.Sprintf("/tmp/adapter-%s.pipe", safeName)
 
 	// Create the file if it doesn't exist
 	f, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)

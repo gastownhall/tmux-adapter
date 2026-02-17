@@ -317,9 +317,14 @@ func (cm *ControlMode) PipePaneStop(session string) error {
 	return err
 }
 
-// ResizePaneTo sets the pane (and its window) to an exact size.
-// Uses resize-window because single-pane windows constrain the pane to window size.
+// ResizePaneTo sets the pane to an exact size.
+// For pane targets (containing ":"), uses resize-pane directly.
+// For session targets, uses resize-window because single-pane windows constrain the pane.
 func (cm *ControlMode) ResizePaneTo(target string, cols, rows int) error {
+	if strings.Contains(target, ":") {
+		_, err := cm.Execute(fmt.Sprintf("resize-pane -t '%s' -x %d -y %d", target, cols, rows))
+		return err
+	}
 	return cm.ResizeWindow(target, cols, rows)
 }
 
@@ -354,6 +359,135 @@ func (cm *ControlMode) IsSessionAttached(session string) (bool, error) {
 		return false, err
 	}
 	return out != "0", nil
+}
+
+// TmuxPane represents a single pane in the tmux hierarchy.
+type TmuxPane struct {
+	Index   int    `json:"index"`
+	ID      string `json:"id"`
+	Target  string `json:"target"`
+	Command string `json:"command"`
+	PID     string `json:"pid"`
+	Width   int    `json:"width"`
+	Height  int    `json:"height"`
+	Active  bool   `json:"active"`
+	WorkDir string `json:"workDir"`
+}
+
+// TmuxWindow represents a window containing one or more panes.
+type TmuxWindow struct {
+	Index  int        `json:"index"`
+	Name   string     `json:"name"`
+	Active bool       `json:"active"`
+	Panes  []TmuxPane `json:"panes"`
+}
+
+// TmuxSessionNode represents a tmux session in the full tree.
+type TmuxSessionNode struct {
+	Name     string       `json:"name"`
+	Attached bool         `json:"attached"`
+	Windows  []TmuxWindow `json:"windows"`
+}
+
+// GetTmuxTree returns the full tmux session/window/pane hierarchy.
+func (cm *ControlMode) GetTmuxTree() ([]TmuxSessionNode, error) {
+	// Get sessions for attached status
+	sessions, err := cm.ListSessions()
+	if err != nil {
+		return nil, err
+	}
+
+	sessionAttached := make(map[string]bool, len(sessions))
+	for _, s := range sessions {
+		sessionAttached[s.Name] = s.Attached
+	}
+
+	// Get all panes across all sessions in a single command
+	out, err := cm.Execute("list-panes -a -F '#{session_name}\t#{window_index}\t#{window_name}\t#{window_active}\t#{pane_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\t#{pane_width}\t#{pane_height}\t#{pane_active}\t#{pane_current_path}'")
+	if err != nil {
+		return nil, err
+	}
+
+	// Track ordering
+	type windowKey struct {
+		session string
+		index   int
+	}
+
+	var sessionOrder []string
+	sessionSeen := make(map[string]bool)
+	windowOrder := make(map[string][]int)
+	windowSeen := make(map[windowKey]bool)
+	windowData := make(map[windowKey]*TmuxWindow)
+
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 12)
+		if len(parts) < 12 {
+			continue
+		}
+
+		sessName := parts[0]
+		winIdx, _ := strconv.Atoi(parts[1])
+		winName := parts[2]
+		winActive := parts[3] == "1"
+		paneIdx, _ := strconv.Atoi(parts[4])
+		paneID := parts[5]
+		paneCmd := parts[6]
+		panePID := parts[7]
+		paneW, _ := strconv.Atoi(parts[8])
+		paneH, _ := strconv.Atoi(parts[9])
+		paneActive := parts[10] == "1"
+		paneWorkDir := parts[11]
+
+		if !sessionSeen[sessName] {
+			sessionSeen[sessName] = true
+			sessionOrder = append(sessionOrder, sessName)
+		}
+
+		wk := windowKey{sessName, winIdx}
+		if !windowSeen[wk] {
+			windowSeen[wk] = true
+			windowOrder[sessName] = append(windowOrder[sessName], winIdx)
+			windowData[wk] = &TmuxWindow{
+				Index:  winIdx,
+				Name:   winName,
+				Active: winActive,
+			}
+		}
+
+		target := fmt.Sprintf("%s:%d.%d", sessName, winIdx, paneIdx)
+		windowData[wk].Panes = append(windowData[wk].Panes, TmuxPane{
+			Index:   paneIdx,
+			ID:      paneID,
+			Target:  target,
+			Command: paneCmd,
+			PID:     panePID,
+			Width:   paneW,
+			Height:  paneH,
+			Active:  paneActive,
+			WorkDir: paneWorkDir,
+		})
+	}
+
+	result := make([]TmuxSessionNode, 0, len(sessionOrder))
+	for _, sessName := range sessionOrder {
+		sess := TmuxSessionNode{
+			Name:     sessName,
+			Attached: sessionAttached[sessName],
+		}
+		for _, winIdx := range windowOrder[sessName] {
+			wk := windowKey{sessName, winIdx}
+			if w, ok := windowData[wk]; ok {
+				sess.Windows = append(sess.Windows, *w)
+			}
+		}
+		result = append(result, sess)
+	}
+
+	return result, nil
 }
 
 // shellQuote wraps a string for safe passing through tmux send-keys -l.
