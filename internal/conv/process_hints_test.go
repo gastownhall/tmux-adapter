@@ -103,9 +103,11 @@ func TestCollectProcessTreeArgs(t *testing.T) {
 func TestResolveRuntimeSessionID(t *testing.T) {
 	oldRead := readProcessArgsFunc
 	oldList := listChildPIDsFunc
+	oldOpen := listOpenFilesFunc
 	defer func() {
 		readProcessArgsFunc = oldRead
 		listChildPIDsFunc = oldList
+		listOpenFilesFunc = oldOpen
 	}()
 
 	readProcessArgsFunc = func(pid string) (string, error) {
@@ -128,6 +130,10 @@ func TestResolveRuntimeSessionID(t *testing.T) {
 			return nil, nil
 		}
 	}
+	listOpenFilesFunc = func(pid string) ([]string, error) {
+		_ = pid
+		return nil, nil
+	}
 
 	if got := resolveRuntimeSessionID("claude", "10"); got != "26a96967-588d-4c9b-a1b2-5b4eb8af29fd" {
 		t.Fatalf("resolveRuntimeSessionID(claude) = %q", got)
@@ -137,5 +143,60 @@ func TestResolveRuntimeSessionID(t *testing.T) {
 	}
 	if got := resolveRuntimeSessionID("gemini", "10"); got != "" {
 		t.Fatalf("resolveRuntimeSessionID(gemini) = %q, want empty", got)
+	}
+}
+
+func TestResolveRuntimeSessionIDCodexFromOpenFile(t *testing.T) {
+	oldRead := readProcessArgsFunc
+	oldList := listChildPIDsFunc
+	oldOpen := listOpenFilesFunc
+	defer func() {
+		readProcessArgsFunc = oldRead
+		listChildPIDsFunc = oldList
+		listOpenFilesFunc = oldOpen
+	}()
+
+	readProcessArgsFunc = func(pid string) (string, error) {
+		switch pid {
+		case "20":
+			return "-zsh", nil
+		case "21":
+			return "codex", nil
+		default:
+			return "", nil
+		}
+	}
+	listChildPIDsFunc = func(pid string) ([]string, error) {
+		if pid == "20" {
+			return []string{"21"}, nil
+		}
+		return nil, nil
+	}
+	listOpenFilesFunc = func(pid string) ([]string, error) {
+		if pid != "21" {
+			return nil, nil
+		}
+		return []string{
+			"/Users/test/.codex/sessions/2026/02/16/rollout-2026-02-16T19-36-06-019c69ab-6567-7130-907b-69e92fbd33cd.jsonl",
+		}, nil
+	}
+
+	got := resolveRuntimeSessionID("codex", "20")
+	want := "019c69ab-6567-7130-907b-69e92fbd33cd"
+	if got != want {
+		t.Fatalf("resolveRuntimeSessionID(codex open-file) = %q, want %q", got, want)
+	}
+}
+
+func TestExtractCodexSessionIDFromPath(t *testing.T) {
+	path := "/Users/test/.codex/sessions/2026/02/16/rollout-2026-02-16T19-36-06-019c69ab-6567-7130-907b-69e92fbd33cd.jsonl"
+	got := extractCodexSessionIDFromPath(path)
+	want := "019c69ab-6567-7130-907b-69e92fbd33cd"
+	if got != want {
+		t.Fatalf("extractCodexSessionIDFromPath() = %q, want %q", got, want)
+	}
+
+	if got := extractCodexSessionIDFromPath("/tmp/not-a-codex-file.jsonl"); got != "" {
+		t.Fatalf("extractCodexSessionIDFromPath(invalid) = %q, want empty", got)
 	}
 }

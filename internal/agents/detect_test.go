@@ -223,3 +223,69 @@ func TestDetectRuntimeUnknownProcess(t *testing.T) {
 		t.Fatalf("DetectRuntime(\"mystery-proc\", \"999999999\") = %q, want \"\"", got)
 	}
 }
+
+func TestDetectRuntime_NodeWrappedGeminiByArgs(t *testing.T) {
+	oldRead := readProcessArgsFunc
+	oldList := listChildPIDsFunc
+	defer func() {
+		readProcessArgsFunc = oldRead
+		listChildPIDsFunc = oldList
+	}()
+
+	readProcessArgsFunc = func(pid string) (string, error) {
+		switch pid {
+		case "10":
+			return "zsh -zsh", nil
+		case "11":
+			return "node /Users/csells/.nvm/versions/node/v22.21.1/bin/gemini", nil
+		default:
+			return "", nil
+		}
+	}
+	listChildPIDsFunc = func(pid string) ([]string, error) {
+		switch pid {
+		case "10":
+			return []string{"11"}, nil
+		default:
+			return nil, nil
+		}
+	}
+
+	got := DetectRuntime("node", "10")
+	if got != "gemini" {
+		t.Fatalf("DetectRuntime(\"node\", \"10\") = %q, want \"gemini\"", got)
+	}
+}
+
+func TestDetectRuntime_NodeWrappedClaudeByArgs(t *testing.T) {
+	oldRead := readProcessArgsFunc
+	oldList := listChildPIDsFunc
+	defer func() {
+		readProcessArgsFunc = oldRead
+		listChildPIDsFunc = oldList
+	}()
+
+	readProcessArgsFunc = func(pid string) (string, error) {
+		switch pid {
+		case "20":
+			return "zsh -zsh", nil
+		case "21":
+			return "node /usr/local/bin/claude", nil
+		default:
+			return "", nil
+		}
+	}
+	listChildPIDsFunc = func(pid string) ([]string, error) {
+		switch pid {
+		case "20":
+			return []string{"21"}, nil
+		default:
+			return nil, nil
+		}
+	}
+
+	got := DetectRuntime("node", "20")
+	if got != "claude" {
+		t.Fatalf("DetectRuntime(\"node\", \"20\") = %q, want \"claude\"", got)
+	}
+}

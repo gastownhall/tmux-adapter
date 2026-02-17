@@ -68,6 +68,13 @@ func (c *Converter) Start() error {
 			return conv.NewClaudeParser(agentName, convID)
 		},
 	)
+	geminiRoot := filepath.Join(os.Getenv("HOME"), ".gemini", "tmp")
+	c.watcher.RegisterRuntime("gemini",
+		conv.NewGeminiDiscoverer(geminiRoot),
+		func(agentName, convID string) conv.Parser {
+			return conv.NewGeminiParser(agentName, convID)
+		},
+	)
 	codexRoot := filepath.Join(os.Getenv("HOME"), ".codex", "sessions")
 	c.watcher.RegisterRuntime("codex",
 		conv.NewCodexDiscoverer(codexRoot),

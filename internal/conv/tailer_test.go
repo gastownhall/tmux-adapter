@@ -1,6 +1,7 @@
 package conv
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -168,6 +169,178 @@ func TestTailerDetectsTruncation(t *testing.T) {
 		case <-timeout:
 			t.Fatal("timeout waiting for post-truncation line")
 		}
+	}
+}
+
+func TestTailerDetectsReplaceWithLargerFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.json")
+
+	// Initial file (small)
+	if err := os.WriteFile(path, []byte("a\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tailer, err := NewTailer(ctx, path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tailer.Stop()
+
+	// Initial line
+	select {
+	case line := <-tailer.Lines():
+		if string(line) != "a" {
+			t.Fatalf("initial line = %q, want %q", string(line), "a")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for initial line")
+	}
+
+	// Nil sentinel (initial read complete)
+	select {
+	case line := <-tailer.Lines():
+		if line != nil {
+			t.Fatalf("expected nil sentinel, got %q", string(line))
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for nil sentinel")
+	}
+
+	// Replace file atomically with a larger file.
+	tmp := filepath.Join(dir, "new.json")
+	if err := os.WriteFile(tmp, []byte("b\nc\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		t.Fatal(err)
+	}
+
+	// Must re-read from start of replacement file; expect "b" then "c".
+	var got []string
+	timeout := time.After(5 * time.Second)
+	for len(got) < 2 {
+		select {
+		case line := <-tailer.Lines():
+			if line == nil {
+				continue
+			}
+			got = append(got, string(line))
+		case <-timeout:
+			t.Fatalf("timeout waiting for replacement lines, got %v", got)
+		}
+	}
+	if got[0] != "b" || got[1] != "c" {
+		t.Fatalf("replacement lines = %v, want [b c]", got)
+	}
+}
+
+func TestTailerHandlesLargeJSONLLine(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "large.jsonl")
+
+	// 3MB single line + newline (exceeds prior 2MB scanner token size).
+	large := bytes.Repeat([]byte("x"), 3*1024*1024)
+	data := append(append([]byte(nil), large...), '\n')
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tailer, err := NewTailer(ctx, path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tailer.Stop()
+
+	select {
+	case line := <-tailer.Lines():
+		if len(line) != len(large) {
+			t.Fatalf("line length = %d, want %d", len(line), len(large))
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for large line")
+	}
+
+	select {
+	case line := <-tailer.Lines():
+		if line != nil {
+			t.Fatalf("expected nil sentinel, got line len %d", len(line))
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for nil sentinel")
+	}
+}
+
+func TestTailerFullDocRereadsFromStartOnChange(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.json")
+
+	if err := os.WriteFile(path, []byte("a\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tailer, err := NewTailer(ctx, path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tailer.Stop()
+
+	// Initial line + nil sentinel
+	select {
+	case line := <-tailer.Lines():
+		if string(line) != "a" {
+			t.Fatalf("initial line = %q, want %q", string(line), "a")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for initial line")
+	}
+	select {
+	case line := <-tailer.Lines():
+		if line != nil {
+			t.Fatalf("expected nil sentinel, got %q", string(line))
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for nil sentinel")
+	}
+
+	// Grow file without truncation.
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("b\n"); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Full-doc mode should re-read from start and emit both lines.
+	var got []string
+	timeout := time.After(5 * time.Second)
+	for len(got) < 2 {
+		select {
+		case line := <-tailer.Lines():
+			if line == nil {
+				continue
+			}
+			got = append(got, string(line))
+		case <-timeout:
+			t.Fatalf("timeout waiting for reread lines, got %v", got)
+		}
+	}
+	if got[0] != "a" || got[1] != "b" {
+		t.Fatalf("reread lines = %v, want [a b]", got)
 	}
 }
 

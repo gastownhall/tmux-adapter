@@ -47,6 +47,14 @@ var knownShells = map[string]bool{
 // names. Tests can replace this to avoid calling pgrep.
 var collectDescendantNamesFunc = CollectDescendantNames
 
+const maxProcessArgDetectDepth = 10
+
+// readProcessArgsFunc/listChildPIDsFunc are replaceable in tests.
+var (
+	readProcessArgsFunc = readProcessArgs
+	listChildPIDsFunc   = listChildPIDs
+)
+
 // IsAgentProcess checks if a pane command matches any of the expected process names.
 func IsAgentProcess(command string, processNames []string) bool {
 	if slices.Contains(processNames, command) {
@@ -83,6 +91,13 @@ func CheckProcessBinary(pid string, processNames []string) bool {
 // DetectRuntime performs the full 3-tier agent detection across all
 // known runtimes. Returns the runtime name or "" if no agent found.
 func DetectRuntime(paneCommand, pid string) string {
+	// Special-case node wrappers (Gemini/Claude/etc.) by inspecting process args.
+	if paneCommand == "node" && pid != "" {
+		if runtime := detectNodeWrappedRuntime(pid); runtime != "" {
+			return runtime
+		}
+	}
+
 	// Tier 1: Direct pane command match
 	for _, runtime := range RuntimePriority {
 		if IsAgentProcess(paneCommand, runtimeProcessNames[runtime]) {
@@ -118,6 +133,103 @@ func DetectRuntime(paneCommand, pid string) string {
 	}
 
 	return "" // no agent found
+}
+
+// detectNodeWrappedRuntime resolves runtimes whose pane command is "node" by
+// walking the process tree and inspecting argv for known CLI entrypoints.
+func detectNodeWrappedRuntime(pid string) string {
+	for _, args := range collectProcessTreeArgs(pid, maxProcessArgDetectDepth) {
+		fields := strings.Fields(args)
+		for _, token := range fields {
+			base := filepath.Base(token)
+			switch base {
+			case "gemini":
+				return "gemini"
+			case "claude":
+				return "claude"
+			case "opencode":
+				return "opencode"
+			case "codex":
+				return "codex"
+			}
+			if strings.HasPrefix(base, "codex-") {
+				return "codex"
+			}
+		}
+	}
+	return ""
+}
+
+func collectProcessTreeArgs(rootPID string, maxDepth int) []string {
+	type node struct {
+		pid   string
+		depth int
+	}
+
+	var result []string
+	seen := make(map[string]bool)
+	queue := []node{{pid: rootPID}}
+
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+
+		if cur.pid == "" || seen[cur.pid] {
+			continue
+		}
+		seen[cur.pid] = true
+
+		if args, err := readProcessArgsFunc(cur.pid); err == nil {
+			args = strings.TrimSpace(args)
+			if args != "" {
+				result = append(result, args)
+			}
+		}
+
+		if cur.depth >= maxDepth {
+			continue
+		}
+		children, err := listChildPIDsFunc(cur.pid)
+		if err != nil {
+			continue
+		}
+		for _, child := range children {
+			if child == "" || seen[child] {
+				continue
+			}
+			queue = append(queue, node{pid: child, depth: cur.depth + 1})
+		}
+	}
+
+	return result
+}
+
+func readProcessArgs(pid string) (string, error) {
+	out, err := exec.Command("ps", "-p", pid, "-o", "args=").Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+func listChildPIDs(pid string) ([]string, error) {
+	out, err := exec.Command("pgrep", "-P", pid).Output()
+	if err != nil {
+		if _, ok := err.(*exec.ExitError); ok {
+			return nil, nil // no children
+		}
+		return nil, err
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	children := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			children = append(children, line)
+		}
+	}
+	return children, nil
 }
 
 // CollectDescendantNames walks the process tree below pid, collecting all

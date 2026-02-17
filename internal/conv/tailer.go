@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -15,11 +16,18 @@ import (
 // MaxReReadFileSize is the safety valve for full-file reads (Gemini strategy).
 const MaxReReadFileSize = 8 * 1024 * 1024
 
+// maxJSONLTokenSize allows very large single-line events (e.g. Codex tool
+// output payloads) without scanner token overflow.
+const maxJSONLTokenSize = 16 * 1024 * 1024
+
 // Tailer watches a conversation file and emits complete lines as they are appended.
 type Tailer struct {
 	path    string
 	offset  int64
 	partial []byte
+	last    os.FileInfo
+	modTime time.Time
+	fullDoc bool
 	watcher *fsnotify.Watcher
 	lines   chan []byte
 	ctx     context.Context
@@ -50,11 +58,19 @@ func NewTailer(ctx context.Context, path string, fromStart bool) (*Tailer, error
 		lines:   make(chan []byte, 256),
 		ctx:     tCtx,
 		cancel:  cancel,
+		fullDoc: strings.HasSuffix(strings.ToLower(path), ".json") && !strings.HasSuffix(strings.ToLower(path), ".jsonl"),
 	}
 
 	if !fromStart {
 		if info, err := os.Stat(path); err == nil {
 			t.offset = info.Size()
+			t.last = info
+			t.modTime = info.ModTime()
+		}
+	} else {
+		if info, err := os.Stat(path); err == nil {
+			t.last = info
+			t.modTime = info.ModTime()
 		}
 	}
 
@@ -125,6 +141,28 @@ func (t *Tailer) readNewData() {
 	if err != nil {
 		return
 	}
+
+	// File was replaced/rotated (new inode at same path): restart from beginning.
+	if t.last != nil && !os.SameFile(t.last, info) {
+		t.offset = 0
+		t.partial = nil
+	}
+
+	// Full-document files (.json, not .jsonl) are rewritten in-place and can
+	// change in the middle of the file. Re-read from byte 0 whenever metadata
+	// changes so parsers always see a complete document.
+	if t.fullDoc {
+		sameFile := t.last != nil && os.SameFile(t.last, info)
+		if sameFile && info.Size() == t.offset && info.ModTime().Equal(t.modTime) {
+			return
+		}
+		t.offset = 0
+		t.partial = nil
+	}
+
+	t.last = info
+	t.modTime = info.ModTime()
+
 	if info.Size() < t.offset {
 		// File was truncated — reset
 		t.offset = 0
@@ -140,7 +178,7 @@ func (t *Tailer) readNewData() {
 	}
 
 	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 2*1024*1024), 2*1024*1024) // 2MB buffer
+	scanner.Buffer(make([]byte, 256*1024), maxJSONLTokenSize)
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -172,4 +210,3 @@ func (t *Tailer) readNewData() {
 		t.offset = newOffset
 	}
 }
-

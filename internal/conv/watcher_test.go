@@ -732,6 +732,73 @@ func TestSelectMainConversationFile_UsesResumeHint(t *testing.T) {
 	}
 }
 
+func TestShouldRediscoverForCreate(t *testing.T) {
+	tests := []struct {
+		name    string
+		runtime string
+		path    string
+		want    bool
+	}{
+		{
+			name:    "claude jsonl",
+			runtime: "claude",
+			path:    "/tmp/claude/abc.jsonl",
+			want:    true,
+		},
+		{
+			name:    "codex jsonl",
+			runtime: "codex",
+			path:    "/tmp/codex/rollout-123.jsonl",
+			want:    true,
+		},
+		{
+			name:    "gemini session json",
+			runtime: "gemini",
+			path:    "/tmp/gemini/chats/session-2026-02-17T04-27-1234.json",
+			want:    true,
+		},
+		{
+			name:    "gemini non session json",
+			runtime: "gemini",
+			path:    "/tmp/gemini/logs.json",
+			want:    false,
+		},
+		{
+			name:    "gemini jsonl",
+			runtime: "gemini",
+			path:    "/tmp/gemini/chats/session-foo.jsonl",
+			want:    false,
+		},
+		{
+			name:    "unknown json",
+			runtime: "other",
+			path:    "/tmp/other/conv.json",
+			want:    true,
+		},
+		{
+			name:    "unknown jsonl",
+			runtime: "other",
+			path:    "/tmp/other/conv.jsonl",
+			want:    true,
+		},
+		{
+			name:    "unknown txt",
+			runtime: "other",
+			path:    "/tmp/other/conv.txt",
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldRediscoverForCreate(tt.runtime, tt.path)
+			if got != tt.want {
+				t.Fatalf("shouldRediscoverForCreate(%q, %q) = %v, want %v", tt.runtime, tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
 // drainWatcherEvents drains all buffered events from a watcher's event channel.
 func drainWatcherEvents(w *ConversationWatcher) {
 	for {

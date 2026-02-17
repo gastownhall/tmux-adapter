@@ -190,9 +190,19 @@ bindMobileLayoutEvents(mobileNavBtn, sidebarCloseBtn, drawerBackdropEl);
 // --- Component events ---
 converterEl.addEventListener('converter-send', async function(e) {
   var detail = e.detail;
+  var files = detail.files || [];
+  var agentName = selectedAgent || detail.name || '';
+  if (!agentName) {
+    converterEl.showError('No agent selected for send');
+    return;
+  }
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    converterEl.showError('Disconnected: cannot send prompt');
+    return;
+  }
   // Send files first as binary frames
-  for (var i = 0; i < detail.files.length; i++) {
-    var file = detail.files[i];
+  for (var i = 0; i < files.length; i++) {
+    var file = files[i];
     var fileBytes = new Uint8Array(await file.arrayBuffer());
     var nameBytes = textEncoder.encode(file.name || 'attachment.bin');
     var mimeBytes = textEncoder.encode(file.type || 'application/octet-stream');
@@ -202,11 +212,11 @@ converterEl.addEventListener('converter-send', async function(e) {
     payload.set(mimeBytes, nameBytes.length + 1);
     payload[nameBytes.length + 1 + mimeBytes.length] = 0;
     payload.set(fileBytes, nameBytes.length + 1 + mimeBytes.length + 1);
-    ws.send(encodeBinaryFrame(BinaryMsgType.FileUpload, selectedAgent, payload));
+    ws.send(encodeBinaryFrame(BinaryMsgType.FileUpload, agentName, payload));
   }
   // Then send prompt
   if (detail.prompt) {
-    send({ type: 'send-prompt', agent: detail.name, prompt: detail.prompt });
+    send({ type: 'send-prompt', agent: agentName, prompt: detail.prompt });
   }
 });
 
@@ -487,7 +497,10 @@ function handleMessage(msg) {
       break;
 
     case 'send-prompt':
-      if (!msg.ok) console.error('send-prompt error:', msg.error);
+      if (!msg.ok) {
+        console.error('send-prompt error:', msg.error);
+        converterEl.showError('Send failed: ' + (msg.error || 'unknown error'));
+      }
       break;
 
     case 'error':

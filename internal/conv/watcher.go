@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -638,13 +639,16 @@ func (w *ConversationWatcher) watchDirectoryLoop(ctx context.Context, agentName 
 			if !ok {
 				return
 			}
-			if event.Has(fsnotify.Create) && strings.HasSuffix(event.Name, ".jsonl") {
-				// New conversation file detected — re-discover using latest agent info
-				agent, agentOk := w.registry.GetAgent(agentName)
-				if agentOk {
-					go w.discoverAndTail(ctx, agent)
-				}
+			if !event.Has(fsnotify.Create) {
+				continue
 			}
+
+			// New conversation file detected — re-discover using latest agent info.
+			agent, agentOk := w.registry.GetAgent(agentName)
+			if !agentOk || !shouldRediscoverForCreate(agent.Runtime, event.Name) {
+				continue
+			}
+			go w.discoverAndTail(ctx, agent)
 		case err, ok := <-watcher.Errors:
 			if !ok {
 				return
@@ -662,6 +666,18 @@ func (w *ConversationWatcher) retryDiscovery(ctx context.Context, agent agents.A
 		return
 	case <-timer.C:
 		w.discoverAndTail(ctx, agent)
+	}
+}
+
+func shouldRediscoverForCreate(runtime, path string) bool {
+	base := strings.ToLower(filepath.Base(path))
+	switch runtime {
+	case "gemini":
+		return strings.HasPrefix(base, "session-") && strings.HasSuffix(base, ".json")
+	case "claude", "codex":
+		return strings.HasSuffix(base, ".jsonl")
+	default:
+		return strings.HasSuffix(base, ".jsonl") || strings.HasSuffix(base, ".json")
 	}
 }
 
