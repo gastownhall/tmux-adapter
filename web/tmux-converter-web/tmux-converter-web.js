@@ -430,6 +430,21 @@ tmux-converter-web .spinner {
 @keyframes tmux-converter-spin {
   to { transform: rotate(360deg); }
 }
+
+tmux-converter-web .progress-bar {
+  width: 200px;
+  height: 4px;
+  background: #30363d;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+tmux-converter-web .progress-fill {
+  height: 100%;
+  background: #58a6ff;
+  border-radius: 2px;
+  transition: width 0.15s ease-out;
+}
 `;
 
 function injectStyles() {
@@ -519,6 +534,8 @@ export class TmuxConverterWeb extends HTMLElement {
   }
 
   showWaiting(message) {
+    this.#autoScroll = true;
+    this.#eventsWrap.style.scrollBehavior = 'auto';
     clearChildren(this.#eventsWrap);
     var loading = document.createElement('div');
     loading.className = 'agent-list-state';
@@ -529,6 +546,52 @@ export class TmuxConverterWeb extends HTMLElement {
     text.textContent = message || 'Loading conversation...';
     loading.appendChild(text);
     this.#eventsWrap.appendChild(loading);
+  }
+
+  showProgress(loaded, total) {
+    this.#autoScroll = true;
+    var indeterminate = !total;
+    var labelText = indeterminate
+      ? 'Loading ' + loaded.toLocaleString() + ' events...'
+      : 'Loading ' + loaded.toLocaleString() + ' of ' + total.toLocaleString() + ' events...';
+
+    var existing = this.#eventsWrap.querySelector('.snapshot-progress');
+    if (existing) {
+      existing.querySelector('.progress-text').textContent = labelText;
+      var fill = existing.querySelector('.progress-fill');
+      if (fill) {
+        if (indeterminate) {
+          fill.parentElement.style.display = 'none';
+        } else {
+          fill.parentElement.style.display = '';
+          fill.style.width = Math.round(loaded / total * 100) + '%';
+        }
+      }
+      return;
+    }
+
+    clearChildren(this.#eventsWrap);
+    var wrap = document.createElement('div');
+    wrap.className = 'agent-list-state snapshot-progress';
+    wrap.style.flexDirection = 'column';
+    wrap.style.gap = '8px';
+    var spinner = document.createElement('span');
+    spinner.className = 'spinner';
+    wrap.appendChild(spinner);
+    var text = document.createElement('span');
+    text.className = 'progress-text';
+    text.textContent = labelText;
+    wrap.appendChild(text);
+    if (!indeterminate) {
+      var bar = document.createElement('div');
+      bar.className = 'progress-bar';
+      var fill = document.createElement('div');
+      fill.className = 'progress-fill';
+      fill.style.width = Math.round(loaded / total * 100) + '%';
+      bar.appendChild(fill);
+      wrap.appendChild(bar);
+    }
+    this.#eventsWrap.appendChild(wrap);
   }
 
   showError(message) {
@@ -755,13 +818,15 @@ export class TmuxConverterWeb extends HTMLElement {
   }
 
   #renderEvents(events, isSnapshot) {
-    clearChildren(this.#eventsWrap);
+    var wrap = this.#eventsWrap;
+
+    clearChildren(wrap);
 
     if (events.length === 0) {
       var empty = document.createElement('div');
       empty.className = 'event-count-info';
       empty.textContent = 'No events yet \u2014 waiting for conversation activity...';
-      this.#eventsWrap.appendChild(empty);
+      wrap.appendChild(empty);
       this.#autoScroll = true;
       return;
     }
@@ -776,7 +841,7 @@ export class TmuxConverterWeb extends HTMLElement {
       } else {
         info.textContent = visible.length.toLocaleString() + ' historic event' + (visible.length !== 1 ? 's' : '') + (visible.length !== events.length ? ' (' + events.length.toLocaleString() + ' total)' : '');
       }
-      this.#eventsWrap.appendChild(info);
+      wrap.appendChild(info);
     }
 
     var renderSlice = visible.length > MAX_RENDER_EVENTS ? visible.slice(visible.length - MAX_RENDER_EVENTS) : visible;
@@ -793,9 +858,11 @@ export class TmuxConverterWeb extends HTMLElement {
       frag.appendChild(divider);
     }
 
-    this.#eventsWrap.appendChild(frag);
+    wrap.appendChild(frag);
     this.#autoScroll = true;
-    this.#scrollToBottom(isSnapshot);
+
+    // Snapshot loads should land at bottom immediately (no animated jump from top).
+    this.#scrollToBottom(Boolean(isSnapshot));
   }
 
   #reRenderEvents() {
@@ -934,10 +1001,10 @@ export class TmuxConverterWeb extends HTMLElement {
   #scrollToBottom(instant) {
     if (!this.#autoScroll) return;
     var wrap = this.#eventsWrap;
-    requestAnimationFrame(function() {
-      wrap.style.scrollBehavior = instant ? 'auto' : 'smooth';
-      wrap.scrollTop = wrap.scrollHeight;
-    });
+    // Always use immediate scrolling to avoid visible animated jumps when
+    // switching agents and rendering large snapshots.
+    wrap.style.scrollBehavior = 'auto';
+    wrap.scrollTop = wrap.scrollHeight;
   }
 
   // --- Attachments ---

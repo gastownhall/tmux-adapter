@@ -123,3 +123,36 @@ func (tc *testWSClient) recv(t *testing.T) serverMessage {
 	}
 	return msg
 }
+
+// drainSnapshot consumes conversation-snapshot-chunk messages until
+// conversation-snapshot-end, returning all accumulated events.
+func (tc *testWSClient) drainSnapshot(t *testing.T) []conv.ConversationEvent {
+	t.Helper()
+	var events []conv.ConversationEvent
+	for {
+		msg := tc.recv(t)
+		switch msg.Type {
+		case "conversation-snapshot-chunk":
+			events = append(events, msg.Events...)
+		case "conversation-snapshot-end":
+			return events
+		default:
+			t.Fatalf("drainSnapshot: unexpected message type %q", msg.Type)
+		}
+	}
+}
+
+// recvAfterSnapshot consumes any pending snapshot chunks + end messages,
+// then returns the first non-snapshot message.
+func (tc *testWSClient) recvAfterSnapshot(t *testing.T) serverMessage {
+	t.Helper()
+	for {
+		msg := tc.recv(t)
+		switch msg.Type {
+		case "conversation-snapshot-chunk", "conversation-snapshot-end":
+			continue
+		default:
+			return msg
+		}
+	}
+}

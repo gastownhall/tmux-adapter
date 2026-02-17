@@ -77,8 +77,16 @@ func (t *Tailer) Stop() {
 func (t *Tailer) tailLoop() {
 	defer close(t.lines)
 
-	// Initial read
+	// Initial read — all existing file content
 	t.readNewData()
+
+	// Sentinel: nil line signals initial read is complete. Consumers use this
+	// to know when all historical data has been delivered through the channel.
+	select {
+	case t.lines <- nil:
+	case <-t.ctx.Done():
+		return
+	}
 
 	// Poll fallback timer (1s with jitter)
 	pollTicker := time.NewTicker(time.Second)

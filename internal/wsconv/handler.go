@@ -94,8 +94,14 @@ func (c *Client) handleListAgents(msg clientMessage) {
 		c.sendJSON(serverMessage{ID: msg.ID, Type: "list-agents", OK: &ok, Error: err.Error()})
 		return
 	}
+	pathInclude, pathExclude, err := wsbase.CompilePathFilters(msg.IncludePathFilter, msg.ExcludePathFilter)
+	if err != nil {
+		ok := false
+		c.sendJSON(serverMessage{ID: msg.ID, Type: "list-agents", OK: &ok, Error: err.Error()})
+		return
+	}
 
-	regAgents := c.buildAgentList(include, exclude)
+	regAgents := c.buildAgentList(include, exclude, pathInclude, pathExclude)
 	c.sendJSON(serverMessage{ID: msg.ID, Type: "list-agents", Agents: regAgents})
 }
 
@@ -107,14 +113,22 @@ func (c *Client) handleSubscribeAgents(msg clientMessage) {
 		c.sendJSON(serverMessage{ID: msg.ID, Type: "subscribe-agents", OK: &ok, Error: err.Error()})
 		return
 	}
+	pathInclude, pathExclude, err := wsbase.CompilePathFilters(msg.IncludePathFilter, msg.ExcludePathFilter)
+	if err != nil {
+		ok := false
+		c.sendJSON(serverMessage{ID: msg.ID, Type: "subscribe-agents", OK: &ok, Error: err.Error()})
+		return
+	}
 
 	c.mu.Lock()
 	c.subscribedAgents = true
 	c.includeSessionFilter = include
 	c.excludeSessionFilter = exclude
+	c.includePathFilter = pathInclude
+	c.excludePathFilter = pathExclude
 	c.mu.Unlock()
 
-	regAgents := c.buildAgentList(include, exclude)
+	regAgents := c.buildAgentList(include, exclude, pathInclude, pathExclude)
 	total := c.server.registry.Count()
 	c.sendJSON(serverMessage{
 		ID:          msg.ID,
@@ -125,11 +139,14 @@ func (c *Client) handleSubscribeAgents(msg clientMessage) {
 	})
 }
 
-func (c *Client) buildAgentList(include, exclude *regexp.Regexp) []agentInfo {
+func (c *Client) buildAgentList(include, exclude, pathInclude, pathExclude *regexp.Regexp) []agentInfo {
 	allAgents := c.server.watcher.ListAgents()
 	result := make([]agentInfo, 0, len(allAgents))
 	for _, a := range allAgents {
 		if !wsbase.PassesFilter(a.Name, include, exclude) {
+			continue
+		}
+		if !wsbase.PassesFilter(a.WorkDir, pathInclude, pathExclude) {
 			continue
 		}
 		info := agentInfo{
@@ -209,7 +226,7 @@ func (c *Client) handleSubscribeConversation(msg clientMessage) {
 	}
 
 	filter := buildFilter(msg.Filter)
-	snapshot, bufSubID, live := buf.Subscribe(filter)
+	snapshot, bufSubID, live, historyDoneCh, complete := buf.Subscribe(filter)
 
 	c.mu.Lock()
 	c.nextSub++
@@ -226,18 +243,14 @@ func (c *Client) handleSubscribeConversation(msg clientMessage) {
 	c.mu.Unlock()
 
 	snapshot = capSnapshot(snapshot)
-	cursor := makeCursor(msg.ConversationID, snapshot)
-
 	c.sendJSON(serverMessage{
 		ID:             msg.ID,
 		Type:           "conversation-snapshot",
 		SubscriptionID: sID,
 		ConversationID: msg.ConversationID,
-		Events:         snapshot,
-		Cursor:         cursor,
 	})
 
-	go c.streamLive(sub, buf)
+	go c.streamSubscription(sID, msg.ConversationID, snapshot, live, historyDoneCh, complete, c.ctx)
 }
 
 func (c *Client) handleFollowAgent(msg clientMessage) {
@@ -326,7 +339,7 @@ func (c *Client) handleFollowAgent(msg clientMessage) {
 		return
 	}
 
-	snapshot, bufSubID, live := buf.Subscribe(filter)
+	snapshot, bufSubID, live, historyDoneCh, complete := buf.Subscribe(filter)
 	subCtx, subCancel := context.WithCancel(c.ctx)
 	sub := &subscription{
 		id:             sID,
@@ -342,20 +355,16 @@ func (c *Client) handleFollowAgent(msg clientMessage) {
 	c.mu.Unlock()
 
 	snapshot = capSnapshot(snapshot)
-	cursor := makeCursor(convID, snapshot)
-
 	c.sendJSON(serverMessage{
 		ID:                    msg.ID,
 		Type:                  "follow-agent",
 		OK:                    boolPtr(true),
 		SubscriptionID:        sID,
 		ConversationID:        convID,
-		Events:                snapshot,
-		Cursor:                cursor,
 		ConversationSupported: convSupported,
 	})
 
-	go c.streamLiveWithContext(sub.id, sub.live, sub.conversationID, subCtx)
+	go c.streamSubscription(sID, convID, snapshot, live, historyDoneCh, complete, subCtx)
 }
 
 func (c *Client) handleUnsubscribe(msg clientMessage) {
@@ -458,7 +467,7 @@ func (c *Client) deliverConversationEvent(event *conv.ConversationEvent) {
 
 	for _, sub := range c.subs {
 		if sub.live != nil {
-			continue // already delivered via streamLiveWithContext
+			continue // already delivered via streamSubscription
 		}
 		if sub.conversationID == event.ConversationID && sub.filter.Matches(*event) {
 			cursor := conv.Cursor{
@@ -489,7 +498,7 @@ func (c *Client) deliverConversationStarted(we conv.WatcherEvent) {
 	if sub, ok := c.follows[we.Agent.Name]; ok && sub.conversationID == "" {
 		buf := c.server.watcher.GetBuffer(we.NewConvID)
 		if buf != nil {
-			snapshot, bufSubID, live := buf.Subscribe(sub.filter)
+			snapshot, bufSubID, live, historyDoneCh, complete := buf.Subscribe(sub.filter)
 			subCtx, subCancel := context.WithCancel(c.ctx)
 
 			sub.conversationID = we.NewConvID
@@ -498,17 +507,13 @@ func (c *Client) deliverConversationStarted(we conv.WatcherEvent) {
 			sub.cancel = subCancel
 
 			snapshot = capSnapshot(snapshot)
-			cursor := makeCursor(we.NewConvID, snapshot)
-
 			c.sendJSON(serverMessage{
 				Type:           "conversation-snapshot",
 				SubscriptionID: sub.id,
 				ConversationID: we.NewConvID,
-				Events:         snapshot,
-				Cursor:         cursor,
 			})
 
-			go c.streamLiveWithContext(sub.id, sub.live, sub.conversationID, subCtx)
+			go c.streamSubscription(sub.id, we.NewConvID, snapshot, live, historyDoneCh, complete, subCtx)
 		}
 	}
 
@@ -525,7 +530,7 @@ func (c *Client) deliverConversationStarted(we conv.WatcherEvent) {
 		}
 
 		filter := buildFilter(pending.filter)
-		snapshot, bufSubID, live := buf.Subscribe(filter)
+		snapshot, bufSubID, live, historyDoneCh, complete := buf.Subscribe(filter)
 		c.nextSub++
 		sID := subID(c.nextSub)
 		subCtx, subCancel := context.WithCancel(c.ctx)
@@ -541,18 +546,14 @@ func (c *Client) deliverConversationStarted(we conv.WatcherEvent) {
 		c.subs[sID] = pendingSub
 
 		snapshot = capSnapshot(snapshot)
-		cursor := makeCursor(we.NewConvID, snapshot)
-
 		c.sendJSON(serverMessage{
 			ID:             pending.msgID,
 			Type:           "conversation-snapshot",
 			SubscriptionID: sID,
 			ConversationID: we.NewConvID,
-			Events:         snapshot,
-			Cursor:         cursor,
 		})
 
-		go c.streamLiveWithContext(pendingSub.id, pendingSub.live, pendingSub.conversationID, subCtx)
+		go c.streamSubscription(sID, we.NewConvID, snapshot, live, historyDoneCh, complete, subCtx)
 	}
 }
 
@@ -595,7 +596,7 @@ func (c *Client) deliverConversationSwitch(we conv.WatcherEvent) {
 		return
 	}
 
-	snapshot, bufSubID, live := newBuf.Subscribe(sub.filter)
+	snapshot, bufSubID, live, historyDoneCh, complete := newBuf.Subscribe(sub.filter)
 	subCtx, subCancel := context.WithCancel(c.ctx)
 
 	sub.conversationID = we.NewConvID
@@ -604,25 +605,90 @@ func (c *Client) deliverConversationSwitch(we conv.WatcherEvent) {
 	sub.cancel = subCancel
 
 	snapshot = capSnapshot(snapshot)
-	cursor := makeCursor(we.NewConvID, snapshot)
-
 	c.sendJSON(serverMessage{
 		Type:           "conversation-snapshot",
 		SubscriptionID: sub.id,
 		ConversationID: we.NewConvID,
-		Events:         snapshot,
-		Cursor:         cursor,
 		Reason:         "switch",
 	})
 
-	go c.streamLiveWithContext(sub.id, sub.live, sub.conversationID, subCtx)
+	go c.streamSubscription(sub.id, we.NewConvID, snapshot, live, historyDoneCh, complete, subCtx)
 }
 
-func (c *Client) streamLive(sub *subscription, buf *conv.ConversationBuffer) {
-	c.streamLiveWithContext(sub.id, sub.live, sub.conversationID, c.ctx)
-}
+// snapshotChunkSize is the batch size for streaming snapshot events to clients.
+const snapshotChunkSize = 500
 
-func (c *Client) streamLiveWithContext(subID string, live <-chan conv.ConversationEvent, conversationID string, ctx context.Context) {
+// streamSubscription sends buffered snapshot events as chunks, waits for the
+// history-done signal if the initial file read hasn't completed, sends an
+// end-of-history marker, then streams live events. All history is sent as
+// conversation-snapshot-chunk messages; all live events after end-of-history
+// are sent as conversation-event messages.
+//
+// The historyDoneCh is closed by ConversationBuffer.MarkHistoryDone() and is
+// used instead of an in-channel sentinel — closing a channel never blocks and
+// never drops, fixing the bug where a non-blocking sentinel send could be lost
+// when the subscriber channel was full.
+func (c *Client) streamSubscription(subID, convID string, snapshot []conv.ConversationEvent, live <-chan conv.ConversationEvent, historyDoneCh <-chan struct{}, historyComplete bool, ctx context.Context) {
+	// Phase 1: Send buffered snapshot as chunks.
+	// When history is already complete, we know the total and can show a real progress bar.
+	total := 0
+	if historyComplete {
+		total = len(snapshot)
+	}
+	loaded := 0
+	for i := 0; i < len(snapshot); i += snapshotChunkSize {
+		end := min(i+snapshotChunkSize, len(snapshot))
+		loaded = end
+		if !c.sendJSONCritical(serverMessage{
+			Type:           "conversation-snapshot-chunk",
+			SubscriptionID: subID,
+			ConversationID: convID,
+			Events:         snapshot[i:end],
+			Progress:       &snapshotProgress{Loaded: loaded, Total: total},
+		}) {
+			return
+		}
+	}
+
+	// Phase 2: If history not complete, stream from live channel until historyDoneCh closes.
+	if !historyComplete {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case event, ok := <-live:
+				if !ok {
+					return
+				}
+				loaded++
+				if !c.sendJSONCritical(serverMessage{
+					Type:           "conversation-snapshot-chunk",
+					SubscriptionID: subID,
+					ConversationID: convID,
+					Events:         []conv.ConversationEvent{event},
+					Progress:       &snapshotProgress{Loaded: loaded},
+				}) {
+					return
+				}
+			case <-historyDoneCh:
+				historyComplete = true
+			}
+			if historyComplete {
+				break
+			}
+		}
+	}
+
+	// End of history
+	if !c.sendJSONCritical(serverMessage{
+		Type:           "conversation-snapshot-end",
+		SubscriptionID: subID,
+		ConversationID: convID,
+	}) {
+		return
+	}
+
+	// Phase 3: Stream live events
 	for {
 		select {
 		case <-ctx.Done():
@@ -632,14 +698,14 @@ func (c *Client) streamLiveWithContext(subID string, live <-chan conv.Conversati
 				return
 			}
 			cursor := conv.Cursor{
-				ConversationID: conversationID,
+				ConversationID: convID,
 				Seq:            event.Seq,
 				EventID:        event.EventID,
 			}
 			c.sendJSON(serverMessage{
 				Type:           "conversation-event",
 				SubscriptionID: subID,
-				ConversationID: conversationID,
+				ConversationID: convID,
 				Event:          &event,
 				Cursor:         encodeCursor(cursor),
 			})

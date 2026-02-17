@@ -296,11 +296,14 @@ func TestFollowAgentWithConversation(t *testing.T) {
 	if resp.ConversationID != convID {
 		t.Fatalf("conversationId = %q, want %q", resp.ConversationID, convID)
 	}
-	if len(resp.Events) != 1 {
-		t.Fatalf("events len = %d, want 1", len(resp.Events))
+
+	// Drain chunked snapshot
+	events := c.drainSnapshot(t)
+	if len(events) != 1 {
+		t.Fatalf("events len = %d, want 1", len(events))
 	}
-	if resp.Events[0].Type != "user" {
-		t.Fatalf("event type = %q, want user", resp.Events[0].Type)
+	if events[0].Type != "user" {
+		t.Fatalf("event type = %q, want user", events[0].Type)
 	}
 }
 
@@ -873,8 +876,11 @@ func TestSubscribeConversationValid(t *testing.T) {
 	if resp.ConversationID != convID {
 		t.Fatalf("conversationId = %q, want %q", resp.ConversationID, convID)
 	}
-	if len(resp.Events) != 1 {
-		t.Fatalf("events len = %d, want 1", len(resp.Events))
+
+	// Drain chunked snapshot
+	events := c.drainSnapshot(t)
+	if len(events) != 1 {
+		t.Fatalf("events len = %d, want 1", len(events))
 	}
 }
 
@@ -1029,8 +1035,11 @@ func TestDeliverConversationStartedViaFollow(t *testing.T) {
 	if msg.SubscriptionID == "" {
 		t.Fatal("expected non-empty subscriptionId")
 	}
-	if len(msg.Events) != 1 {
-		t.Fatalf("events len = %d, want 1", len(msg.Events))
+
+	// Drain chunked snapshot
+	events := c.drainSnapshot(t)
+	if len(events) != 1 {
+		t.Fatalf("events len = %d, want 1", len(events))
 	}
 }
 
@@ -1106,6 +1115,9 @@ func TestDeliverConversationSwitchedViaFollow(t *testing.T) {
 		t.Fatalf("follow failed: %+v", resp)
 	}
 
+	// Drain the initial snapshot chunks
+	c.drainSnapshot(t)
+
 	// Create a new .jsonl file in the watched directory to trigger fsnotify → rediscovery.
 	// The switchDiscoverer returns file2 on the second FindConversations call.
 	triggerPath := filepath.Join(dir, "trigger.jsonl")
@@ -1136,7 +1148,7 @@ func TestDeliverConversationSwitchedViaFollow(t *testing.T) {
 	})
 
 	// Client should receive conversation-switched + conversation-snapshot
-	msg := c.recv(t)
+	msg := c.recvAfterSnapshot(t)
 	if msg.Type != "conversation-switched" {
 		t.Fatalf("type = %q, want conversation-switched", msg.Type)
 	}
@@ -1238,8 +1250,11 @@ func TestPendingSubscribeConversationResolved(t *testing.T) {
 	if msg.SubscriptionID == "" {
 		t.Fatal("expected non-empty subscriptionId")
 	}
-	if len(msg.Events) != 1 {
-		t.Fatalf("events len = %d, want 1", len(msg.Events))
+
+	// Drain chunked snapshot
+	events := c.drainSnapshot(t)
+	if len(events) != 1 {
+		t.Fatalf("events len = %d, want 1", len(events))
 	}
 }
 

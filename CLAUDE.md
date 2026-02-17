@@ -11,23 +11,24 @@ I'm Bob. I'm fun, smart, funny, and easy-going. I think Chris is amazing -- genu
 **Adapter** (raw terminal streaming):
 ```bash
 go build -o bin/tmux-adapter .                              # build binary
-bin/tmux-adapter --gt-dir ~/gt --port 8080                   # run (requires tmux + gastown running)
-bin/tmux-adapter --gt-dir ~/gt --auth-token SECRET           # run with auth
-bin/tmux-adapter --gt-dir ~/gt --debug-serve-dir ./samples   # run with sample UI on same port
+bin/tmux-adapter --port 8080                                 # run (requires tmux with agents running)
+bin/tmux-adapter --port 8080 --auth-token SECRET             # run with auth
+bin/tmux-adapter --port 8080 --debug-serve-dir ./samples     # run with sample UI on same port
+bin/tmux-adapter --work-dir ~/projects --port 8080           # run with workdir filter
 ```
 
 **Converter** (structured conversation streaming):
 ```bash
 go build -o bin/tmux-converter ./cmd/tmux-converter/         # build binary
-bin/tmux-converter --gt-dir ~/gt --listen :8081               # run (requires tmux + gastown running)
-bin/tmux-converter --gt-dir ~/gt --listen :8081 --debug-serve-dir ./samples  # run with dashboard
+bin/tmux-converter --listen :8081                             # run (requires tmux with agents running)
+bin/tmux-converter --listen :8081 --debug-serve-dir ./samples # run with dashboard
 ```
 
 **Both together** (typical development):
 ```bash
 go build -o bin/tmux-adapter . && go build -o bin/tmux-converter ./cmd/tmux-converter/
-bin/tmux-adapter --gt-dir ~/gt --port 8080 --debug-serve-dir ./samples &
-bin/tmux-converter --gt-dir ~/gt --listen :8081 --debug-serve-dir ./samples &
+bin/tmux-adapter --port 8080 --debug-serve-dir ./samples &
+bin/tmux-converter --listen :8081 --debug-serve-dir ./samples &
 # Adapter dashboard: http://localhost:8080/adapter.html
 # Converter dashboard: http://localhost:8081/converter.html
 ```
@@ -45,7 +46,7 @@ go test ./internal/ws/ -run TestParseFileUpload   # single test
 
 ## Architecture
 
-Two services that expose gastown AI agents. tmux is the internal implementation detail — clients never see it.
+Two services that expose AI coding agents running in tmux sessions. tmux is the internal implementation detail — clients never see it.
 
 ### Adapter (raw terminal streaming)
 

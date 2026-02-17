@@ -16,7 +16,8 @@ const (
 	EventProgress   = "progress"
 	EventTurnEnd    = "turn_end"
 	EventQueueOp    = "queue_op"
-	EventError      = "error"
+	EventError       = "error"
+	EventHistoryDone = "history-done" // internal sentinel: initial file read complete
 )
 
 // ConversationEvent is the universal event type streamed to clients.

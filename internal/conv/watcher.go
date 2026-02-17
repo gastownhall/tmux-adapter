@@ -486,12 +486,17 @@ func (w *ConversationWatcher) startConversationStream(ctx context.Context, agent
 		w.mu.Unlock()
 	}
 
-	// Start parsing goroutine
+	// Start parsing goroutine for live updates only (file history already in buffer)
 	go w.pumpFileStream(stream, fs)
 }
 
 func (w *ConversationWatcher) pumpFileStream(stream *conversationStream, fs *fileStream) {
 	for line := range fs.tailer.Lines() {
+		if line == nil {
+			// Sentinel from tailer: initial file read is complete.
+			stream.buffer.MarkHistoryDone()
+			continue
+		}
 		events, err := fs.parser.Parse(line)
 		if err != nil {
 			log.Printf("watcher: parse error for %s: %v", fs.path, err)

@@ -31,10 +31,13 @@ type pendingConvSub struct {
 type Client struct {
 	conn   *websocket.Conn
 	server *Server
-	send   chan outMsg
-	ctx    context.Context
-	cancel context.CancelFunc
-	mu     sync.Mutex
+	send   chan outMsg // best-effort queue for non-critical messages
+	// sendCritical is a dedicated best-effort queue for protocol-critical
+	// messages (snapshot chunks/end) so they are not starved by normal traffic.
+	sendCritical chan outMsg
+	ctx          context.Context
+	cancel       context.CancelFunc
+	mu           sync.Mutex
 
 	subs    map[string]*subscription // subscriptionId → subscription
 	follows map[string]*subscription // agentName → subscription (follow-agent)
@@ -43,6 +46,8 @@ type Client struct {
 	subscribedAgents     bool
 	includeSessionFilter *regexp.Regexp // nil = match all
 	excludeSessionFilter *regexp.Regexp // nil = exclude none
+	includePathFilter    *regexp.Regexp // nil = match all
+	excludePathFilter    *regexp.Regexp // nil = exclude none
 	handshakeDone        bool
 
 	pendingConvSubs map[string]*pendingConvSub // conversationID → pending sub
@@ -64,6 +69,7 @@ func newClient(conn *websocket.Conn, server *Server) *Client {
 		conn:            conn,
 		server:          server,
 		send:            make(chan outMsg, 256),
+		sendCritical:    make(chan outMsg, 128),
 		ctx:             ctx,
 		cancel:          cancel,
 		subs:            make(map[string]*subscription),
@@ -94,18 +100,34 @@ func (c *Client) readPump() {
 
 func (c *Client) writePump() {
 	defer func() { _ = c.conn.Close(websocket.StatusNormalClosure, "") }()
+
+	writeOut := func(msg outMsg) bool {
+		ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
+		err := c.conn.Write(ctx, msg.typ, msg.data)
+		cancel()
+		return err == nil
+	}
+
 	for {
+		// Prefer critical messages when available.
+		select {
+		case msg, ok := <-c.sendCritical:
+			if !ok || !writeOut(msg) {
+				return
+			}
+			continue
+		default:
+		}
+
 		select {
 		case <-c.ctx.Done():
 			return
-		case msg, ok := <-c.send:
-			if !ok {
+		case msg, ok := <-c.sendCritical:
+			if !ok || !writeOut(msg) {
 				return
 			}
-			ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
-			err := c.conn.Write(ctx, msg.typ, msg.data)
-			cancel()
-			if err != nil {
+		case msg, ok := <-c.send:
+			if !ok || !writeOut(msg) {
 				return
 			}
 		}
@@ -121,7 +143,33 @@ func (c *Client) sendJSON(v any) {
 	select {
 	case c.send <- outMsg{typ: websocket.MessageText, data: data}:
 	default:
-		log.Printf("dropping text message for slow client")
+		// Extract message type for diagnostics (the raw JSON always starts with {"type":"...")
+		msgType := "unknown"
+		if sm, ok := v.(serverMessage); ok {
+			msgType = sm.Type
+		}
+		log.Printf("wsconv: dropping %s message for slow client (send channel full)", msgType)
+	}
+}
+
+// sendJSONCritical marshals and sends a protocol-critical message via a dedicated
+// queue so it isn't starved by normal traffic. Still non-blocking by design.
+func (c *Client) sendJSONCritical(v any) bool {
+	data, err := json.Marshal(v)
+	if err != nil {
+		log.Printf("wsconv: failed to marshal message: %v", err)
+		return false
+	}
+	select {
+	case c.sendCritical <- outMsg{typ: websocket.MessageText, data: data}:
+		return true
+	default:
+		msgType := "unknown"
+		if sm, ok := v.(serverMessage); ok {
+			msgType = sm.Type
+		}
+		log.Printf("wsconv: dropping critical %s message for slow client (critical send channel full)", msgType)
+		return false
 	}
 }
 

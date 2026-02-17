@@ -32,6 +32,7 @@
   .filter-error { font-size: 10px; color: #f85149; margin: 2px 0 2px 54px; display: none; }
   .filter-error.visible { display: block; }
   .agent-count { font-size: 11px; color: #8b949e; padding: 4px 0 0 0; }
+  .filter-section-label { font-size: 9px; color: #484f58; text-transform: uppercase; letter-spacing: 0.5px; margin: 4px 0 2px 0; }
   .agent-workdir { font-size: 10px; color: #484f58; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .agent-conv-id {
@@ -60,18 +61,32 @@
       <span class="sidebar-title">Agents</span>
     </div>
     <div class="filter-bar" id="filter-bar">
+      <div class="filter-section-label">Name</div>
       <div class="filter-row">
         <span class="filter-label">Include</span>
-        <input type="text" class="filter-input" id="filter-include" placeholder="regex" spellcheck="false" autocomplete="off">
-        <button type="button" class="filter-clear" id="filter-include-clear" aria-label="Clear include filter">&times;</button>
+        <input type="text" class="filter-input" id="filter-name-include" placeholder="regex" spellcheck="false" autocomplete="off">
+        <button type="button" class="filter-clear" id="filter-name-include-clear" aria-label="Clear">&times;</button>
       </div>
-      <div id="filter-include-error" class="filter-error"></div>
+      <div id="filter-name-include-error" class="filter-error"></div>
       <div class="filter-row">
         <span class="filter-label">Exclude</span>
-        <input type="text" class="filter-input" id="filter-exclude" placeholder="regex" spellcheck="false" autocomplete="off">
-        <button type="button" class="filter-clear" id="filter-exclude-clear" aria-label="Clear exclude filter">&times;</button>
+        <input type="text" class="filter-input" id="filter-name-exclude" placeholder="regex" spellcheck="false" autocomplete="off">
+        <button type="button" class="filter-clear" id="filter-name-exclude-clear" aria-label="Clear">&times;</button>
       </div>
-      <div id="filter-exclude-error" class="filter-error"></div>
+      <div id="filter-name-exclude-error" class="filter-error"></div>
+      <div class="filter-section-label">Path</div>
+      <div class="filter-row">
+        <span class="filter-label">Include</span>
+        <input type="text" class="filter-input" id="filter-path-include" placeholder="regex" spellcheck="false" autocomplete="off">
+        <button type="button" class="filter-clear" id="filter-path-include-clear" aria-label="Clear">&times;</button>
+      </div>
+      <div id="filter-path-include-error" class="filter-error"></div>
+      <div class="filter-row">
+        <span class="filter-label">Exclude</span>
+        <input type="text" class="filter-input" id="filter-path-exclude" placeholder="regex" spellcheck="false" autocomplete="off">
+        <button type="button" class="filter-clear" id="filter-path-exclude-clear" aria-label="Clear">&times;</button>
+      </div>
+      <div id="filter-path-exclude-error" class="filter-error"></div>
       <div class="agent-count" id="agent-count"></div>
     </div>
     <div class="agent-list" id="agent-list">
@@ -115,6 +130,7 @@ var agentsLoadTimer = null;
 var AgentsLoadTimeoutMs = 7000;
 var totalAgents = null;
 var filterDebounceTimer = null;
+var pendingChunks = null; // {events: [], total: int} when receiving chunked snapshot
 var FilterStorageKey = 'tmux-converter-filter';
 
 // --- DOM refs ---
@@ -127,12 +143,18 @@ var mobileNavBtn = document.getElementById('mobile-nav-btn');
 var sidebarCloseBtn = document.getElementById('sidebar-close');
 var drawerBackdropEl = document.getElementById('drawer-backdrop');
 var converterEl = document.getElementById('converter-view');
-var filterIncludeEl = document.getElementById('filter-include');
-var filterExcludeEl = document.getElementById('filter-exclude');
-var filterIncludeClearEl = document.getElementById('filter-include-clear');
-var filterExcludeClearEl = document.getElementById('filter-exclude-clear');
-var filterIncludeErrorEl = document.getElementById('filter-include-error');
-var filterExcludeErrorEl = document.getElementById('filter-exclude-error');
+var filterNameIncludeEl = document.getElementById('filter-name-include');
+var filterNameExcludeEl = document.getElementById('filter-name-exclude');
+var filterNameIncludeClearEl = document.getElementById('filter-name-include-clear');
+var filterNameExcludeClearEl = document.getElementById('filter-name-exclude-clear');
+var filterNameIncludeErrorEl = document.getElementById('filter-name-include-error');
+var filterNameExcludeErrorEl = document.getElementById('filter-name-exclude-error');
+var filterPathIncludeEl = document.getElementById('filter-path-include');
+var filterPathExcludeEl = document.getElementById('filter-path-exclude');
+var filterPathIncludeClearEl = document.getElementById('filter-path-include-clear');
+var filterPathExcludeClearEl = document.getElementById('filter-path-exclude-clear');
+var filterPathIncludeErrorEl = document.getElementById('filter-path-include-error');
+var filterPathExcludeErrorEl = document.getElementById('filter-path-exclude-error');
 var agentCountEl = document.getElementById('agent-count');
 
 // --- Agent loading state machine ---
@@ -195,7 +217,12 @@ converterEl.addEventListener('filter-change', function(e) {
 
 // --- Filter logic ---
 function getFilterValues() {
-  return { include: filterIncludeEl.value, exclude: filterExcludeEl.value };
+  return {
+    nameInclude: filterNameIncludeEl.value,
+    nameExclude: filterNameExcludeEl.value,
+    pathInclude: filterPathIncludeEl.value,
+    pathExclude: filterPathExcludeEl.value
+  };
 }
 
 function loadFilter() {
@@ -203,8 +230,13 @@ function loadFilter() {
     var stored = localStorage.getItem(FilterStorageKey);
     if (!stored) return;
     var f = JSON.parse(stored);
-    if (f.include) filterIncludeEl.value = f.include;
-    if (f.exclude) filterExcludeEl.value = f.exclude;
+    if (f.nameInclude) filterNameIncludeEl.value = f.nameInclude;
+    if (f.nameExclude) filterNameExcludeEl.value = f.nameExclude;
+    if (f.pathInclude) filterPathIncludeEl.value = f.pathInclude;
+    if (f.pathExclude) filterPathExcludeEl.value = f.pathExclude;
+    // Migrate old format
+    if (f.include && !f.nameInclude) filterNameIncludeEl.value = f.include;
+    if (f.exclude && !f.nameExclude) filterNameExcludeEl.value = f.exclude;
   } catch (e) { console.warn('localStorage error:', e); }
 }
 
@@ -215,19 +247,39 @@ function saveFilter() {
 }
 
 function clearFilterErrors() {
-  filterIncludeErrorEl.textContent = '';
-  filterIncludeErrorEl.classList.remove('visible');
-  filterIncludeEl.classList.remove('error');
-  filterExcludeErrorEl.textContent = '';
-  filterExcludeErrorEl.classList.remove('visible');
-  filterExcludeEl.classList.remove('error');
+  [filterNameIncludeErrorEl, filterNameExcludeErrorEl, filterPathIncludeErrorEl, filterPathExcludeErrorEl].forEach(function(el) {
+    el.textContent = '';
+    el.classList.remove('visible');
+  });
+  [filterNameIncludeEl, filterNameExcludeEl, filterPathIncludeEl, filterPathExcludeEl].forEach(function(el) {
+    el.classList.remove('error');
+  });
+}
+
+function showFilterError(errText) {
+  var pairs = [
+    { keyword: 'session include', errEl: filterNameIncludeErrorEl, inputEl: filterNameIncludeEl },
+    { keyword: 'session exclude', errEl: filterNameExcludeErrorEl, inputEl: filterNameExcludeEl },
+    { keyword: 'path include', errEl: filterPathIncludeErrorEl, inputEl: filterPathIncludeEl },
+    { keyword: 'path exclude', errEl: filterPathExcludeErrorEl, inputEl: filterPathExcludeEl }
+  ];
+  for (var i = 0; i < pairs.length; i++) {
+    if (errText.indexOf(pairs[i].keyword) !== -1) {
+      pairs[i].errEl.textContent = errText;
+      pairs[i].errEl.classList.add('visible');
+      pairs[i].inputEl.classList.add('error');
+      return;
+    }
+  }
 }
 
 function sendSubscribeAgents() {
   var f = getFilterValues();
   var msg = { type: 'subscribe-agents' };
-  if (f.include) msg.includeSessionFilter = f.include;
-  if (f.exclude) msg.excludeSessionFilter = f.exclude;
+  if (f.nameInclude) msg.includeSessionFilter = f.nameInclude;
+  if (f.nameExclude) msg.excludeSessionFilter = f.nameExclude;
+  if (f.pathInclude) msg.includePathFilter = f.pathInclude;
+  if (f.pathExclude) msg.excludePathFilter = f.pathExclude;
   clearFilterErrors();
   send(msg);
 }
@@ -250,16 +302,13 @@ function updateAgentCount() {
 }
 
 loadFilter();
-filterIncludeEl.addEventListener('input', onFilterInput);
-filterExcludeEl.addEventListener('input', onFilterInput);
-filterIncludeClearEl.addEventListener('click', function() {
-  filterIncludeEl.value = '';
-  onFilterInput();
+[filterNameIncludeEl, filterNameExcludeEl, filterPathIncludeEl, filterPathExcludeEl].forEach(function(el) {
+  el.addEventListener('input', onFilterInput);
 });
-filterExcludeClearEl.addEventListener('click', function() {
-  filterExcludeEl.value = '';
-  onFilterInput();
-});
+filterNameIncludeClearEl.addEventListener('click', function() { filterNameIncludeEl.value = ''; onFilterInput(); });
+filterNameExcludeClearEl.addEventListener('click', function() { filterNameExcludeEl.value = ''; onFilterInput(); });
+filterPathIncludeClearEl.addEventListener('click', function() { filterPathIncludeEl.value = ''; onFilterInput(); });
+filterPathExcludeClearEl.addEventListener('click', function() { filterPathExcludeEl.value = ''; onFilterInput(); });
 
 // --- WebSocket ---
 function connect() {
@@ -316,16 +365,7 @@ function handleMessage(msg) {
     case 'list-agents':
     case 'subscribe-agents':
       if (msg.type === 'subscribe-agents' && msg.ok === false) {
-        var errText = msg.error || 'Invalid filter';
-        if (errText.indexOf('includeSessionFilter') !== -1) {
-          filterIncludeErrorEl.textContent = errText;
-          filterIncludeErrorEl.classList.add('visible');
-          filterIncludeEl.classList.add('error');
-        } else if (errText.indexOf('excludeSessionFilter') !== -1) {
-          filterExcludeErrorEl.textContent = errText;
-          filterExcludeErrorEl.classList.add('visible');
-          filterExcludeEl.classList.add('error');
-        }
+        showFilterError(msg.error || 'Invalid filter');
         break;
       }
       agents.clear();
@@ -370,8 +410,10 @@ function handleMessage(msg) {
         currentSubId = msg.subscriptionId;
         if (msg.conversationId) {
           currentConvId = msg.conversationId;
-          converterEl.setEvents(msg.events || [], true);
+          pendingChunks = { events: [] };
+          converterEl.showWaiting('Loading conversation...');
         } else {
+          pendingChunks = null;
           converterEl.showWaiting('No conversation yet \u2014 waiting for activity...');
         }
         updateHeader();
@@ -383,17 +425,39 @@ function handleMessage(msg) {
     case 'conversation-snapshot':
       currentConvId = msg.conversationId;
       currentSubId = msg.subscriptionId;
-      converterEl.setEvents(msg.events || [], true);
+      pendingChunks = { events: [] };
+      converterEl.showWaiting('Loading conversation...');
       updateHeader();
+      break;
+
+    case 'conversation-snapshot-chunk':
+      if (msg.subscriptionId === currentSubId && msg.events) {
+        if (!pendingChunks) pendingChunks = { events: [] };
+        for (var i = 0; i < msg.events.length; i++) pendingChunks.events.push(msg.events[i]);
+        if (msg.progress) converterEl.showProgress(msg.progress.loaded, msg.progress.total || 0);
+      }
+      break;
+
+    case 'conversation-snapshot-end':
+      if (pendingChunks && msg.subscriptionId === currentSubId) {
+        converterEl.setEvents(pendingChunks.events, true);
+        pendingChunks = null;
+      }
       break;
 
     case 'conversation-event':
       if (msg.event && msg.subscriptionId === currentSubId) {
-        converterEl.appendEvent(msg.event);
+        if (pendingChunks) {
+          // Events arriving during chunk download — accumulate
+          pendingChunks.events.push(msg.event);
+        } else {
+          converterEl.appendEvent(msg.event);
+        }
       }
       break;
 
     case 'conversation-switched':
+      pendingChunks = null;
       currentConvId = msg.to;
       converterEl.addSwitchNotice(msg.from, msg.to);
       break;
@@ -491,6 +555,7 @@ function selectAgent(name) {
   selectedAgent = name;
   currentConvId = null;
   currentSubId = null;
+  pendingChunks = null;
 
   converterEl.setAttribute('name', name);
   converterEl.style.display = '';

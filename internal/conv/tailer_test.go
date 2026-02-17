@@ -36,6 +36,16 @@ func TestTailerFollowsAppend(t *testing.T) {
 		t.Fatal("timeout waiting for initial line")
 	}
 
+	// Drain nil sentinel (signals end of initial read)
+	select {
+	case line := <-tailer.Lines():
+		if line != nil {
+			t.Fatalf("expected nil sentinel, got %q", string(line))
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for nil sentinel")
+	}
+
 	// Append a new line
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
@@ -72,6 +82,16 @@ func TestTailerFromEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tailer.Stop()
+
+	// Drain nil sentinel (signals end of initial read, even for fromEnd)
+	select {
+	case line := <-tailer.Lines():
+		if line != nil {
+			t.Fatalf("expected nil sentinel, got old content %q", string(line))
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for nil sentinel")
+	}
 
 	// Old content should NOT appear
 	select {
@@ -117,8 +137,8 @@ func TestTailerDetectsTruncation(t *testing.T) {
 	}
 	defer tailer.Stop()
 
-	// Drain initial lines
-	for i := 0; i < 2; i++ {
+	// Drain initial lines + nil sentinel
+	for i := 0; i < 3; i++ {
 		select {
 		case <-tailer.Lines():
 		case <-time.After(3 * time.Second):
@@ -166,11 +186,13 @@ func TestTailerShutdown(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Drain initial
-	select {
-	case <-tailer.Lines():
-	case <-time.After(3 * time.Second):
-		t.Fatal("timeout")
+	// Drain initial line + nil sentinel
+	for i := 0; i < 2; i++ {
+		select {
+		case <-tailer.Lines():
+		case <-time.After(3 * time.Second):
+			t.Fatal("timeout draining initial data")
+		}
 	}
 
 	// Cancel context

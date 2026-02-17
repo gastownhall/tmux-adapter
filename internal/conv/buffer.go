@@ -21,6 +21,8 @@ type ConversationBuffer struct {
 	mu             sync.Mutex // Must be full Lock (not RLock) for gap-free snapshot+subscribe
 	subs           map[int]bufferSub
 	nextSubID      int
+	historyDone    bool           // true once the initial file read is complete
+	historyDoneCh  chan struct{}   // closed when historyDone becomes true; never blocks
 }
 
 // NewConversationBuffer creates a buffer for a specific conversation.
@@ -31,6 +33,7 @@ func NewConversationBuffer(conversationID, agentName string, maxSize int) *Conve
 		events:         make([]ConversationEvent, 0, 256),
 		maxSize:        maxSize,
 		subs:           make(map[int]bufferSub),
+		historyDoneCh:  make(chan struct{}),
 	}
 }
 
@@ -81,19 +84,37 @@ func (b *ConversationBuffer) snapshotLocked(filter EventFilter) []ConversationEv
 	return result
 }
 
-// Subscribe returns a snapshot of current events, a subscriber ID, and a live channel for new events.
-// The snapshot and channel registration are atomic — no events are missed between them.
-func (b *ConversationBuffer) Subscribe(filter EventFilter) (snapshot []ConversationEvent, subID int, live <-chan ConversationEvent) {
+// Subscribe returns a snapshot of current events, a subscriber ID, a live channel
+// for new events, a channel that closes when the initial file read is complete,
+// and whether the initial file read is already complete. When complete is false,
+// callers should select on historyDoneCh to detect completion reliably (the channel
+// is closed by MarkHistoryDone and never blocks, unlike the old sentinel approach).
+func (b *ConversationBuffer) Subscribe(filter EventFilter) (snapshot []ConversationEvent, subID int, live <-chan ConversationEvent, historyDoneCh <-chan struct{}, complete bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	snapshot = b.snapshotLocked(filter)
+	complete = b.historyDone
 
 	ch := make(chan ConversationEvent, 256)
 	b.nextSubID++
 	subID = b.nextSubID
 	b.subs[subID] = bufferSub{ch: ch, filter: filter}
-	return snapshot, subID, ch
+	return snapshot, subID, ch, b.historyDoneCh, complete
+}
+
+// MarkHistoryDone signals that the initial file read is complete. All goroutines
+// selecting on the historyDoneCh (returned by Subscribe) are woken reliably —
+// closing a channel never blocks and never drops.
+func (b *ConversationBuffer) MarkHistoryDone() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.historyDone {
+		return // already done
+	}
+	b.historyDone = true
+	close(b.historyDoneCh)
 }
 
 // Unsubscribe removes a subscriber by ID and closes its channel.

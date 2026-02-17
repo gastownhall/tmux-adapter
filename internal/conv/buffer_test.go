@@ -57,7 +57,7 @@ func TestBufferSubscribeNoGap(t *testing.T) {
 	buf.Append(makeEvent(EventAssistant))
 
 	// Subscribe — should get snapshot + live channel
-	snap, subID, live := buf.Subscribe(EventFilter{})
+	snap, subID, live, _, _ := buf.Subscribe(EventFilter{})
 	if len(snap) != 2 {
 		t.Fatalf("snapshot len = %d, want 2", len(snap))
 	}
@@ -86,7 +86,7 @@ func TestBufferSubscribeConcurrent(t *testing.T) {
 	const total = 100
 
 	// Subscribe first, then write concurrently
-	snap, subID, live := buf.Subscribe(EventFilter{})
+	snap, subID, live, _, _ := buf.Subscribe(EventFilter{})
 	received := len(snap)
 
 	var wg sync.WaitGroup
@@ -187,6 +187,85 @@ func TestBufferEventsSinceGap(t *testing.T) {
 	if ok {
 		t.Fatal("EventsSince should return not ok when events have been evicted")
 	}
+}
+
+func TestBufferHistoryDoneChannelReliable(t *testing.T) {
+	// Regression test: MarkHistoryDone must be reliably detected even when
+	// the subscriber's live channel is full. Previously, MarkHistoryDone sent
+	// a sentinel through the subscriber channel (non-blocking), which was
+	// silently dropped when the channel was full, causing streamSubscription
+	// to block forever ("Loading conversation..." bug).
+	buf := NewConversationBuffer("test-conv", "test-agent", 100000)
+
+	_, subID, live, historyDoneCh, complete := buf.Subscribe(EventFilter{})
+	if complete {
+		t.Fatal("complete should be false before MarkHistoryDone")
+	}
+
+	// Fill the subscriber channel to capacity (256) so old sentinel would have been dropped
+	for i := 0; i < 300; i++ {
+		buf.Append(makeEvent(EventUser))
+	}
+
+	// Mark history done — with the old code, the sentinel would be dropped
+	// because the channel is full. With the new code, historyDoneCh closes reliably.
+	buf.MarkHistoryDone()
+
+	// historyDoneCh should fire immediately
+	select {
+	case <-historyDoneCh:
+		// success — history done signal received reliably
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for historyDoneCh — signal was lost (the old bug)")
+	}
+
+	// Drain the live channel to verify events are still there
+	drained := 0
+	for {
+		select {
+		case <-live:
+			drained++
+		default:
+			goto done
+		}
+	}
+done:
+	// We should have received up to the channel capacity (256), the rest were dropped
+	if drained == 0 {
+		t.Fatal("expected some events in live channel")
+	}
+
+	buf.Unsubscribe(subID)
+}
+
+func TestBufferHistoryDoneAlreadyComplete(t *testing.T) {
+	// When history is already done at subscribe time, historyDoneCh should be
+	// immediately readable (closed before subscribe).
+	buf := NewConversationBuffer("test-conv", "test-agent", 100)
+
+	buf.Append(makeEvent(EventUser))
+	buf.MarkHistoryDone()
+
+	_, subID, _, historyDoneCh, complete := buf.Subscribe(EventFilter{})
+	if !complete {
+		t.Fatal("complete should be true after MarkHistoryDone")
+	}
+
+	// historyDoneCh should be immediately readable (already closed)
+	select {
+	case <-historyDoneCh:
+		// success
+	default:
+		t.Fatal("historyDoneCh should be immediately readable when history is already done")
+	}
+
+	buf.Unsubscribe(subID)
+}
+
+func TestBufferMarkHistoryDoneIdempotent(t *testing.T) {
+	buf := NewConversationBuffer("test-conv", "test-agent", 100)
+	buf.MarkHistoryDone()
+	buf.MarkHistoryDone() // should not panic (double close)
 }
 
 func TestBufferMinSeq(t *testing.T) {

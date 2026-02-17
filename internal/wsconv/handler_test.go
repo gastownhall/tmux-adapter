@@ -101,6 +101,9 @@ func TestStreamLiveViaFollowAgent(t *testing.T) {
 		t.Fatalf("follow failed: %+v", resp)
 	}
 
+	// Drain the snapshot chunks before checking for live events
+	c.drainSnapshot(t)
+
 	// Append live event to buffer
 	buf := srv.watcher.GetBuffer(convID)
 	buf.Append(conv.ConversationEvent{
@@ -168,6 +171,9 @@ func TestStreamLiveViaSubscribeConversation(t *testing.T) {
 	if resp.Type != "conversation-snapshot" {
 		t.Fatalf("type = %q, want conversation-snapshot", resp.Type)
 	}
+
+	// Drain snapshot chunks before checking for live events
+	c.drainSnapshot(t)
 
 	buf := srv.watcher.GetBuffer(convID)
 	buf.Append(conv.ConversationEvent{
@@ -422,12 +428,18 @@ func TestFollowAgentRefollowWithConversation(t *testing.T) {
 		t.Fatalf("convID = %q, want %q", resp.ConversationID, convID)
 	}
 
+	// Drain snapshot chunks from first follow
+	c.drainSnapshot(t)
+
 	// Re-follow same agent (triggers cleanup of old sub with live channel)
 	c.send(t, clientMessage{ID: "2", Type: "follow-agent", Agent: "rf2-agent"})
 	resp = c.recv(t)
 	if resp.Type != "follow-agent" || resp.OK == nil || !*resp.OK {
 		t.Fatalf("re-follow failed: %+v", resp)
 	}
+
+	// Drain snapshot chunks from re-follow
+	c.drainSnapshot(t)
 
 	// Verify live streaming works on new subscription
 	buf := srv.watcher.GetBuffer(convID)
@@ -489,7 +501,7 @@ func TestUnsubscribeAgentWithActiveConversation(t *testing.T) {
 	}
 
 	c.send(t, clientMessage{ID: "2", Type: "unsubscribe-agent", Agent: "ua2-agent"})
-	resp = c.recv(t)
+	resp = c.recvAfterSnapshot(t)
 	if resp.Type != "unsubscribe-agent" {
 		t.Fatalf("type = %q, want unsubscribe-agent", resp.Type)
 	}
@@ -540,7 +552,7 @@ func TestUnsubscribeWithActiveConversation(t *testing.T) {
 	}
 
 	c.send(t, clientMessage{ID: "2", Type: "unsubscribe", SubscriptionID: resp.SubscriptionID})
-	resp = c.recv(t)
+	resp = c.recvAfterSnapshot(t)
 	if resp.Type != "unsubscribe" {
 		t.Fatalf("type = %q, want unsubscribe", resp.Type)
 	}
@@ -602,7 +614,8 @@ func TestDeliverConversationSwitchNoNewBuffer(t *testing.T) {
 		NewConvID: newConvID,
 	})
 
-	msg := c.recv(t)
+	// Drain snapshot chunks from the initial follow, then get the switch message
+	msg := c.recvAfterSnapshot(t)
 	if msg.Type != "conversation-switched" {
 		t.Fatalf("type = %q, want conversation-switched", msg.Type)
 	}

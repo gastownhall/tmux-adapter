@@ -24,6 +24,8 @@ type clientMessage struct {
 	Cursor               string        `json:"cursor,omitempty"`
 	IncludeSessionFilter string        `json:"includeSessionFilter,omitempty"`
 	ExcludeSessionFilter string        `json:"excludeSessionFilter,omitempty"`
+	IncludePathFilter    string        `json:"includePathFilter,omitempty"`
+	ExcludePathFilter    string        `json:"excludePathFilter,omitempty"`
 }
 
 type clientFilter struct {
@@ -47,14 +49,21 @@ type serverMessage struct {
 	SubscriptionID string                   `json:"subscriptionId,omitempty"`
 	ConversationID string                   `json:"conversationId,omitempty"`
 	Events         []conv.ConversationEvent `json:"events,omitempty"`
+	EventCount     *int                     `json:"eventCount,omitempty"`
 	Event          *conv.ConversationEvent  `json:"event,omitempty"`
 	Cursor         string                   `json:"cursor,omitempty"`
+	Progress       *snapshotProgress        `json:"progress,omitempty"`
 	Agent          any                      `json:"agent,omitempty"`
 	Name           string                   `json:"name,omitempty"`
 	From           string                   `json:"from,omitempty"`
 	To             string                   `json:"to,omitempty"`
 	Reason                string                   `json:"reason,omitempty"`
 	ConversationSupported *bool                    `json:"conversationSupported,omitempty"`
+}
+
+type snapshotProgress struct {
+	Loaded int `json:"loaded"`
+	Total  int `json:"total"`
 }
 
 type agentInfo struct {

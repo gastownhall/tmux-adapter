@@ -90,8 +90,10 @@ func (s *Server) Broadcast(event conv.WatcherEvent) {
 // Must be called with s.mu held.
 func (s *Server) broadcastAgentLifecycle(event conv.WatcherEvent) {
 	agentName := ""
+	agentWorkDir := ""
 	if event.Agent != nil {
 		agentName = event.Agent.Name
+		agentWorkDir = event.Agent.WorkDir
 	}
 
 	var msg serverMessage
@@ -120,6 +122,8 @@ func (s *Server) broadcastAgentLifecycle(event conv.WatcherEvent) {
 		subscribed := c.subscribedAgents
 		include := c.includeSessionFilter
 		exclude := c.excludeSessionFilter
+		pathInclude := c.includePathFilter
+		pathExclude := c.excludePathFilter
 		c.mu.Unlock()
 
 		if !subscribed {
@@ -129,7 +133,7 @@ func (s *Server) broadcastAgentLifecycle(event conv.WatcherEvent) {
 		if sendCount {
 			c.sendJSON(countMsg)
 		}
-		if wsbase.PassesFilter(agentName, include, exclude) {
+		if wsbase.PassesFilter(agentName, include, exclude) && wsbase.PassesFilter(agentWorkDir, pathInclude, pathExclude) {
 			c.sendJSON(msg)
 		}
 	}
